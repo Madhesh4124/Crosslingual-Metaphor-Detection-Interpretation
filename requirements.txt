@@ -1,7 +1,7 @@
 fastapi
 uvicorn[standard]
 motor
-pymongo
+pymongo[srv]
 transformers
 torch
 numpy
