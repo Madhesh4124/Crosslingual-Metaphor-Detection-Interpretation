@@ -57,12 +57,21 @@ async def connect_db():
     global db_client
     try:
         if not MONGODB_URL:
-            logger.error("MONGODB_URL missing!")
+            logger.error("!!! MONGODB_URL IS MISSING !!!")
             return None
-        db_client = AsyncIOMotorClient(MONGODB_URL)
-        await db_client.admin.command('ping')
+        
+        logger.info("📡 Attempting to connect to MongoDB...")
+        # Add a short timeout so it doesn't hang forever
+        db_client = AsyncIOMotorClient(MONGODB_URL, serverSelectionTimeoutMS=5000) 
+        
+        # This line is usually where it hangs if the IP isn't whitelisted
+        await asyncio.wait_for(db_client.admin.command('ping'), timeout=5.0)
+        
         logger.info("✓ Connected to MongoDB Atlas")
         return db_client[MONGODB_DB_NAME]
+    except asyncio.TimeoutError:
+        logger.error("✗ MongoDB Connection Timed Out. Check your IP Whitelist!")
+        return None
     except Exception as e:
         logger.error(f"✗ MongoDB Connection Failed: {e}")
         return None
