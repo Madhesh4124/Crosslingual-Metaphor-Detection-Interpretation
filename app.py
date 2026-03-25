@@ -165,6 +165,12 @@ async def detect_metaphor(request: DetectRequest):
 
     return result
 
+# /predict alias — required by the React frontend (App.jsx calls /predict)
+@app.post("/predict")
+async def predict_endpoint(request: DetectRequest):
+    return await detect_metaphor(request)
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=PORT)
+
