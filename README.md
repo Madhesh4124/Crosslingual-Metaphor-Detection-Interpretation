@@ -1,11 +1,3 @@
----
-title: Metaphor Detection Backend
-emoji: 🧠
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-pinned: false
----
 # Crosslingual Metaphor Detection System
 
 A production-ready NLP system for detecting metaphors in **Hindi, Tamil, Telugu, and Kannada** using fine-tuned transformer models.

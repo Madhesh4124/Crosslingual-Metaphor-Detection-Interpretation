@@ -35,8 +35,8 @@ yarn.lock
 frontend/dist/
 frontend/build/
 
-# Models (hosted on Hugging Face)
-models/
+# Models (tracked with Git LFS for deployment)
+# models/
 
 # Hugging Face cache
 .cache/
