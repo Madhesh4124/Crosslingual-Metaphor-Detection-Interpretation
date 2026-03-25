@@ -12,6 +12,8 @@ A production-ready NLP system for detecting metaphors in **Hindi, Tamil, Telugu,
 The project includes a **FastAPI backend**, **React frontend**, training scripts, and detailed documentation.
 All trained models are hosted on **Hugging Face** and are automatically downloaded at runtime.
 
+🌐 **Live Demo**: [https://crosslingual-metaphor-detection-interpretation-kovgohbol.vercel.app/](https://crosslingual-metaphor-detection-interpretation-kovgohbol.vercel.app/)
+
 ---
 
 ## 🚀 Features

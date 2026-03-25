@@ -1,0 +1,16 @@
+name: Keep HF Space Alive
+
+on:
+  schedule:
+    # Runs every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Also allows manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Hugging Face Space
+        run: |
+          curl -s https://madhesh4124-metaphor-detection-backend.hf.space/health
+          echo "✓ Space pinged successfully"
