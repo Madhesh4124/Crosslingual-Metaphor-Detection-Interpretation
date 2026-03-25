@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './History.css';
 
 function History({ apiBaseUrl, onClose }) {
+  const SESSION_ID = localStorage.getItem('metaphor_session_id') || 'anonymous';
   const [history, setHistory] = useState([]);
   const [statistics, setStatistics] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -23,6 +24,7 @@ function History({ apiBaseUrl, onClose }) {
       const params = new URLSearchParams();
       if (filter.language) params.append('language', filter.language);
       if (filter.label) params.append('label', filter.label);
+      params.append('session_id', SESSION_ID);
 
       const response = await fetch(`${apiBaseUrl}/history?${params}`);
 
@@ -42,7 +44,7 @@ function History({ apiBaseUrl, onClose }) {
 
   const fetchStatistics = async () => {
     try {
-      const response = await fetch(`${apiBaseUrl}/statistics`);
+      const response = await fetch(`${apiBaseUrl}/statistics?session_id=${SESSION_ID}`);
       if (response.ok) {
         const data = await response.json();
         setStatistics(data.statistics);
@@ -58,7 +60,7 @@ function History({ apiBaseUrl, onClose }) {
     }
 
     try {
-      const response = await fetch(`${apiBaseUrl}/history/${id}`, {
+      const response = await fetch(`${apiBaseUrl}/history/${id}?session_id=${SESSION_ID}`, {
         method: 'DELETE',
       });
 

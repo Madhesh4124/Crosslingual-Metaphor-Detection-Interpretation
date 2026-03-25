@@ -63,6 +63,7 @@ class DetectRequest(BaseModel):
     text: str
     language: Optional[str] = None
     interpretation_language: Optional[str] = "english"
+    session_id: Optional[str] = None  # Browser-generated UUID for history isolation
 
 # ── Database ─────────────────────────────────────────────────────────────────
 async def connect_db():
@@ -233,12 +234,13 @@ async def _predict(request: DetectRequest):
         "timestamp":    datetime.now().isoformat()
     }
 
-    # Save to MongoDB
+    # Save to MongoDB (tagged with session_id for isolation)
     if db_client:
         try:
             await db_client[MONGODB_DB_NAME].predictions.insert_one({
                 **result,
-                "interpretation_language": interp_lang
+                "interpretation_language": interp_lang,
+                "session_id": request.session_id or "anonymous"
             })
         except Exception as e:
             logger.error(f"MongoDB save error: {e}")
@@ -259,11 +261,13 @@ async def get_history(
     limit: int = Query(50, le=100),
     skip: int = 0,
     language: Optional[str] = None,
-    label: Optional[str] = None
+    label: Optional[str] = None,
+    session_id: Optional[str] = None
 ):
     if not db_client:
         return {"history": []}
-    query = {}
+    # Only return predictions for THIS session
+    query = {"session_id": session_id or "anonymous"}
     if language: query["language"] = language
     if label:    query["label"]    = label
     cursor = db_client[MONGODB_DB_NAME].predictions.find(query).sort("timestamp", -1).skip(skip).limit(limit)
@@ -273,10 +277,13 @@ async def get_history(
     return {"history": preds}
 
 @app.delete("/history/{prediction_id}")
-async def delete_prediction(prediction_id: str):
+async def delete_prediction(prediction_id: str, session_id: Optional[str] = None):
     if not db_client:
         raise HTTPException(status_code=503, detail="Database not connected")
-    result = await db_client[MONGODB_DB_NAME].predictions.delete_one({"_id": ObjectId(prediction_id)})
+    # Only allow deleting own predictions
+    result = await db_client[MONGODB_DB_NAME].predictions.delete_one(
+        {"_id": ObjectId(prediction_id), "session_id": session_id or "anonymous"}
+    )
     return {"deleted": result.deleted_count > 0}
 
 @app.delete("/history")
@@ -287,14 +294,19 @@ async def clear_history():
     return {"deleted_count": result.deleted_count}
 
 @app.get("/statistics")
-async def get_statistics():
+async def get_statistics(session_id: Optional[str] = None):
     if not db_client:
         return {"statistics": {"total_predictions": 0, "metaphor_count": 0, "normal_count": 0, "languages": {}}}
     col = db_client[MONGODB_DB_NAME].predictions
-    total    = await col.count_documents({})
-    metaphor = await col.count_documents({"label": "metaphor"})
-    normal   = await col.count_documents({"label": "normal"})
-    lang_data = await col.aggregate([{"$group": {"_id": "$language", "count": {"$sum": 1}}}]).to_list(10)
+    # Only count THIS session's predictions
+    sid = session_id or "anonymous"
+    total    = await col.count_documents({"session_id": sid})
+    metaphor = await col.count_documents({"label": "metaphor", "session_id": sid})
+    normal   = await col.count_documents({"label": "normal",   "session_id": sid})
+    lang_data = await col.aggregate([
+        {"$match": {"session_id": sid}},
+        {"$group": {"_id": "$language", "count": {"$sum": 1}}}
+    ]).to_list(10)
     return {"statistics": {
         "total_predictions": total,
         "metaphor_count":    metaphor,

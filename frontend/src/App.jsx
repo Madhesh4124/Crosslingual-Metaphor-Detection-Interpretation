@@ -92,6 +92,16 @@ function App() {
 
   const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
+  // Generate a persistent session ID for this browser (isolates history per user)
+  const SESSION_ID = (() => {
+    let id = localStorage.getItem('metaphor_session_id');
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem('metaphor_session_id', id);
+    }
+    return id;
+  })();
+
   // Initialize Web Speech API
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -160,7 +170,8 @@ function App() {
           },
           body: JSON.stringify({
             text,
-            interpretation_language: lang
+            interpretation_language: lang,
+            session_id: SESSION_ID
           }),
         });
 
