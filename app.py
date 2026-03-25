@@ -10,7 +10,6 @@ from pydantic import BaseModel
 from motor.motor_asyncio import AsyncIOMotorClient
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from langdetect import detect, LangDetectException
-from google import genai
 from dotenv import load_dotenv
 
 # Load configuration
@@ -107,6 +106,10 @@ def get_model(lang: str):
 async def startup_event():
     await connect_db()
     logger.info("✓ Application started (Lazy Loading enabled)")
+
+@app.get("/")
+async def root():
+    return {"message": "Metaphor Detection API v2.1 - Build Triggered"}
 
 @app.get("/health")
 async def health():

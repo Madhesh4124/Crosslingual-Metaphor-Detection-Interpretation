@@ -5,11 +5,9 @@ FROM python:3.10-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Install system dependencies
+# Install minimal system dependencies only
 RUN apt-get update && apt-get install -y \
-    build-essential \
     curl \
-    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user (Required for HF Spaces)
@@ -21,11 +19,13 @@ ENV HOME=/home/user \
 # Set the working directory inside the user's home
 WORKDIR $HOME/app
 
-# Copy requirements first (to leverage Docker caching)
+# Copy and install requirements first (leverages Docker layer caching)
 COPY --chown=user requirements.txt .
 
+# Install CPU-only torch FIRST to avoid 2GB GPU version being pulled
+RUN pip install --no-cache-dir --user torch --index-url https://download.pytorch.org/whl/cpu
 
-# Install dependencies from requirements.txt
+# Install remaining dependencies
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Copy the rest of the application code
