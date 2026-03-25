@@ -24,7 +24,14 @@ WORKDIR $HOME/app
 # Copy requirements first (to leverage Docker caching)
 COPY --chown=user requirements.txt .
 
-# Install dependencies from requirements.txt
+
+# We explicitly uninstall any existing bson/pymongo and reinstall the correct versions
+# before running the rest of the requirements.
+RUN pip install --no-cache-dir --user --upgrade pip && \
+    pip uninstall -y bson pymongo && \
+    pip install --no-cache-dir --user "pymongo[srv]>=4.6.0" "motor>=3.3.0"
+
+# Install remaining dependencies from requirements.txt
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Copy the rest of the application code
