@@ -26,7 +26,7 @@ PORT = int(os.environ.get("PORT", 7860))
 
 app = FastAPI(title="Multilingual Metaphor Detector")
 
-# Enable CORS for Vercel and all origins
+# Enable CORS for all origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -40,12 +40,17 @@ db_client: Optional[AsyncIOMotorClient] = None
 models = {}
 tokenizers = {}
 
-# Language Mapping
-SUPPORTED_LANGUAGES = ['hindi', 'tamil', 'telugu', 'kannada']
+# Model Repo IDs on Hugging Face Hub
+MODEL_REPO_IDS = {
+    "tamil": "Madhesh4124/tamil-metaphor-xlm",
+    "telugu": "Madhesh4124/telugu-metaphor-muril",
+    "kannada": "Madhesh4124/kannada-metaphor-bert",
+    "hindi": "Madhesh4124/hindi-metaphor-xlm"
+}
 
 class DetectRequest(BaseModel):
     text: str
-    language: Optional[str] = None # Optional: If not provided, we detect it.
+    language: Optional[str] = None
 
 # Database Connection
 async def connect_db():
@@ -62,52 +67,45 @@ async def connect_db():
         logger.error(f"✗ MongoDB Connection Failed: {e}")
         return None
 
-# Model Repo IDs on Hugging Face Hub
-MODEL_REPO_IDS = {
-    "tamil": "Madhesh4124/tamil-metaphor-xlm",
-    "telugu": "Madhesh4124/telugu-metaphor-muril",
-    "kannada": "Madhesh4124/kannada-metaphor-bert",
-    "hindi": "Madhesh4124/hindi-metaphor-xlm"
-}
-
-# Efficient Model Loading from Hugging Face Hub
-def load_models():
-    """Load from the Hub Repo IDs you've already pushed"""
-    for lang, repo_id in MODEL_REPO_IDS.items():
-        try:
-            logger.info(f"Downloading/Loading {lang} from Hub: {repo_id}...")
-            tokenizers[lang] = AutoTokenizer.from_pretrained(repo_id)
-            models[lang] = AutoModelForSequenceClassification.from_pretrained(
-                repo_id,
-                torch_dtype=torch.float16, # Vital to fit all 4 in 16GB
-                low_cpu_mem_usage=True
-            )
-            models[lang].eval()
-            logger.info(f"✓ {lang} model ready.")
-        except Exception as e:
-            logger.error(f"Failed to load {lang} from Hub: {e}")
+# Lazy Model Loading Function
+def get_model(lang: str):
+    """Load model on demand (Lazy Loading) from Hugging Face Hub"""
+    if lang not in models:
+        repo_id = MODEL_REPO_IDS.get(lang)
+        if not repo_id:
+            logger.warning(f"Language {lang} not supported. Defaulting to hindi.")
+            lang = 'hindi'
+            repo_id = MODEL_REPO_IDS['hindi']
+            
+        if lang not in models:
+            logger.info(f"⏳ LAZY LOADING {lang} model from Hub: {repo_id}...")
+            try:
+                tokenizers[lang] = AutoTokenizer.from_pretrained(repo_id)
+                models[lang] = AutoModelForSequenceClassification.from_pretrained(
+                    repo_id,
+                    torch_dtype=torch.float16,
+                    low_cpu_mem_usage=True
+                )
+                models[lang].eval()
+                logger.info(f"✓ {lang} model ready.")
+            except Exception as e:
+                logger.error(f"Failed to lazy load {lang}: {e}")
+                raise HTTPException(status_code=500, detail=f"Model loading failed.")
     
-    if not models:
-        logger.warning("No models could be loaded from Hugging Face Hub.")
+    return models[lang], tokenizers[lang], lang
 
 @app.on_event("startup")
 async def startup_event():
     await connect_db()
-    load_models()
-
-@app.get("/")
-async def root():
-    return {"message": "Metaphor Detection API is running on Hugging Face Spaces"}
+    logger.info("✓ Application started (Lazy Loading enabled)")
 
 @app.get("/health")
 async def health():
     db_status = "connected" if db_client else "disconnected"
-    loaded_models = list(models.keys())
     return {
         "status": "online",
         "database": db_status,
-        "models_loaded": loaded_models,
-        "ram_available": "16GB Tier"
+        "active_models": list(models.keys())
     }
 
 @app.post("/detect")
@@ -116,27 +114,20 @@ async def detect_metaphor(request: DetectRequest):
     if not text:
         raise HTTPException(status_code=400, detail="Text cannot be empty")
 
-    # 1. Language Detection
-    lang = request.language if request.language in SUPPORTED_LANGUAGES else None
-    if not lang:
+    # 1. Language Logic
+    lang_req = request.language
+    if lang_req not in MODEL_REPO_IDS:
         try:
             detected = detect(text)
             lang_map = {'hi': 'hindi', 'ta': 'tamil', 'te': 'telugu', 'kn': 'kannada'}
-            lang = lang_map.get(detected, 'hindi')
+            lang_req = lang_map.get(detected, 'hindi')
         except:
-            lang = 'hindi' # Default to Hindi
+            lang_req = 'hindi'
 
-    # 2. Prediction
-    if lang not in models:
-        # Fallback to Hindi if requested language model isn't loaded
-        if 'hindi' in models:
-            lang = 'hindi'
-        else:
-            raise HTTPException(status_code=500, detail=f"No models available for prediction.")
+    # 2. Lazy Model Retrieval
+    model, tokenizer, final_lang = get_model(lang_req)
 
-    tokenizer = tokenizers[lang]
-    model = models[lang]
-
+    # 3. Inference
     inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
     with torch.no_grad():
         outputs = model(**inputs)
@@ -146,19 +137,19 @@ async def detect_metaphor(request: DetectRequest):
 
     result = {
         "text": text,
-        "language": lang,
+        "language": final_lang,
         "label": "metaphor" if pred_class == 1 else "normal",
         "confidence": float(confidence),
         "timestamp": datetime.now().isoformat()
     }
 
-    # 3. Save to MongoDB
+    # 4. Save to MongoDB
     if db_client:
         try:
             db = db_client[MONGODB_DB_NAME]
             await db.predictions.insert_one(result.copy())
         except Exception as e:
-            logger.error(f"Database save error: {e}")
+            logger.error(f"MongoDB save failed: {e}")
 
     return result
 
