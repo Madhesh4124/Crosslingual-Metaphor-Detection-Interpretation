@@ -308,7 +308,7 @@ Your response must contain exactly 5 labeled lines and nothing else.
         
         # Generate the interpretation with safety settings
         response = gemma_client.models.generate_content(
-            model="gemma-3-27b-it",
+            model="gemma-4-31b-it",
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.7,
@@ -414,7 +414,7 @@ def get_gemini_prediction(text: str, language: str) -> dict:
         
         Response (only 'metaphor' or 'normal'):"""
         response = gemma_client.models.generate_content(
-            model="gemma-3-27b-it",
+            model="gemma-4-31b-it",
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.3,
@@ -462,7 +462,7 @@ Example for "Life is a journey":
 
 Your explanation (keep it concise and specific to this text):"""
         response = gemma_client.models.generate_content(
-            model="gemma-3-27b-it",
+            model="gemma-4-31b-it",
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.3,
