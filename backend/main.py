@@ -761,6 +761,15 @@ async def shutdown_event():
     await close_mongodb_connection()
     logger.info("✓ Application shutdown complete")
 
+@app.get("/")
+async def root_health():
+    """Root health check for Hugging Face Spaces and load balancers"""
+    return {
+        "status": "online",
+        "service": "Multilingual Metaphor Detection API",
+        "models": list(models.keys())
+    }
+
 @app.get("/health")
 async def health_check():
     """
