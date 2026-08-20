@@ -22,8 +22,9 @@ WORKDIR $HOME/app
 # Copy and install requirements first (leverages Docker layer caching)
 COPY --chown=user requirements.txt .
 
-# Install CPU-only torch FIRST to avoid 2GB GPU version being pulled
-RUN pip install --no-cache-dir --user torch --index-url https://download.pytorch.org/whl/cpu
+# Install CPU-only torch using extra-index-url so build dependencies resolve from PyPI
+RUN pip install --no-cache-dir --user --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir --user torch --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Install remaining dependencies
 RUN pip install --no-cache-dir --user -r requirements.txt
