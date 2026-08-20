@@ -345,8 +345,6 @@ def compute_xai_saliency(text: str, model, tokenizer, label: str):
         logger.error(f"XAI saliency error: {str(e)}")
         return [], f"Decision rationale based on fine-tuned transformer classification."
 
-def generate_gemini_interpretation(text: str, language: str, target_language: str = "English") -> InterpretationData:
-    """
 def generate_gemini_interpretation(text: str, language: str, target_language: str = "English", model_label: str = "metaphor") -> tuple[Optional[InterpretationData], bool, str]:
     """
     Generate multi-layered interpretation using Gemini API and perform unified validation.
@@ -480,63 +478,6 @@ CRITICAL RULES:
     except Exception as e:
         logger.error(f"❌ Error in single-pass interpretation: {str(e)}")
         return (None, False, f"Verification skipped: {str(e)[:100]}")
-            logger.info(f"💾 Cached interpretation for: {text[:30]}...")
-            
-            return result
-        else:
-            raise Exception("No response from Gemma AI")
-    
-    except Exception as e:
-        logger.error(f"❌ Error generating Gemma interpretation: {str(e)}")
-        logger.error(f"Error type: {type(e).__name__}")
-        
-        # Return error message
-        return InterpretationData(
-            translation=f"⚠️ Translation failed: {str(e)[:100]}",
-            literal="Translation unavailable",
-            emotional="AI interpretation unavailable",
-            philosophical="AI interpretation unavailable",
-            cultural="AI interpretation unavailable"
-        )
-    
-def get_gemini_prediction(text: str, language: str) -> dict:
-    """
-    Get Gemini's prediction for whether the text contains metaphors
-    Returns a dictionary with 'label' and 'confidence' keys
-    """
-    if not GEMINI_API_KEY:
-        logger.error("Gemini API key not configured")
-        return {"label": "error", "confidence": 0.0, "error": "Gemini API key not configured"}
-    
-    try:
-        if not gemma_client:
-            raise Exception("Gemma API client not configured")
-        prompt = f"""Analyze the following text and determine if it contains a metaphor. 
-        Respond with only one word: 'metaphor' if it contains a metaphor, or 'normal' if it doesn't.
-        
-        Text: "{text}"
-        
-        Response (only 'metaphor' or 'normal'):"""
-        response = gemma_client.models.generate_content(
-            model="gemma-4-26b-a4b-it",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.3,
-            )
-        )
-        if response and hasattr(response, 'text') and response.text:
-            gemma_label = response.text.strip().lower()
-            # Validate response
-            if gemma_label not in ['metaphor', 'normal']:
-                logger.warning(f"Unexpected Gemma response: {gemma_label}")
-                return {"label": "error", "confidence": 0.0, "error": "Invalid response from Gemma"}
-                
-            # For Gemma, we'll use a fixed high confidence since it doesn't provide probabilities
-            return {"label": gemma_label, "confidence": 0.95}
-            
-    except Exception as err:
-        logger.error(f"Error getting Gemma prediction: {str(err)}")
-        return {"label": "error", "confidence": 0.0, "error": str(err)}
 
 def generate_metaphor_explanation(text: str, language: str, confidence: float) -> str:
     """
