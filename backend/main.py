@@ -676,9 +676,17 @@ MODEL_FOLDERS = {
     'kannada': 'kannada-metaphor-bert'
 }
 
+HF_MODEL_IDS = {
+    'hindi': 'Madhesh4124/hindi-metaphor-xlm',
+    'tamil': 'Madhesh4124/tamil-metaphor-xlm',
+    'telugu': 'Madhesh4124/telugu-metaphor-muril',
+    'kannada': 'Madhesh4124/kannada-metaphor-bert'
+}
+
 def get_model_and_tokenizer(lang: str):
     """
     Lazy load model and tokenizer on-demand for the requested language.
+    Checks local models/ folder first; if not found (e.g. on HF Spaces), downloads directly from Hugging Face Hub.
     """
     if lang in models and lang in tokenizers:
         return models[lang], tokenizers[lang]
@@ -688,19 +696,22 @@ def get_model_and_tokenizer(lang: str):
     if not model_path.exists():
         model_path = MODEL_BASE_PATH / f"{lang}_model"
         
-    if not model_path.exists():
-        raise RuntimeError(f"Model path not found: {model_path}")
-        
-    logger.info(f"⚡ Lazy-loading {lang} model from {model_path}...")
+    if model_path.exists():
+        model_target = str(model_path)
+        logger.info(f"⚡ Lazy-loading {lang} model from local path: {model_target}")
+    else:
+        # Fallback to Hugging Face Hub repository ID
+        model_target = HF_MODEL_IDS.get(lang, f"Madhesh4124/{lang}-metaphor-xlm")
+        logger.info(f"⚡ Local model not found. Downloading {lang} model from Hugging Face Hub: {model_target}")
     
     # Load tokenizer
     try:
-        tokenizers[lang] = AutoTokenizer.from_pretrained(str(model_path), use_fast=True)
+        tokenizers[lang] = AutoTokenizer.from_pretrained(model_target, use_fast=True)
     except Exception:
-        tokenizers[lang] = AutoTokenizer.from_pretrained(str(model_path), use_fast=False)
+        tokenizers[lang] = AutoTokenizer.from_pretrained(model_target, use_fast=False)
         
     # Load PyTorch classification model
-    models[lang] = AutoModelForSequenceClassification.from_pretrained(str(model_path), num_labels=2)
+    models[lang] = AutoModelForSequenceClassification.from_pretrained(model_target, num_labels=2)
     models[lang].eval()
     
     logger.info(f"✓ Successfully lazy-loaded {lang} model into memory")
