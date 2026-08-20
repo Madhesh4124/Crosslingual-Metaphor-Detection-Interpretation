@@ -22,18 +22,38 @@ try:
 except ImportError:
     whisper = None
 import tempfile
-from tenacity import retry, stop_after_attempt, wait_exponential
-import database as _db_module
-from database import (
-    connect_to_mongodb,
-    close_mongodb_connection,
-    save_prediction,
-    get_prediction_history,
-    get_prediction_by_id,
-    delete_prediction,
-    clear_all_history,
-    get_statistics
-)
+import sys
+from pathlib import Path
+_ROOT_DIR = Path(__file__).resolve().parent.parent
+_BACKEND_DIR = Path(__file__).resolve().parent
+for _p in [str(_ROOT_DIR), str(_BACKEND_DIR)]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+try:
+    import database as _db_module
+    from database import (
+        connect_to_mongodb,
+        close_mongodb_connection,
+        save_prediction,
+        get_prediction_history,
+        get_prediction_by_id,
+        delete_prediction,
+        clear_all_history,
+        get_statistics
+    )
+except ImportError:
+    from backend import database as _db_module
+    from backend.database import (
+        connect_to_mongodb,
+        close_mongodb_connection,
+        save_prediction,
+        get_prediction_history,
+        get_prediction_by_id,
+        delete_prediction,
+        clear_all_history,
+        get_statistics
+    )
 
 # Load environment variables from .env file
 load_dotenv()
