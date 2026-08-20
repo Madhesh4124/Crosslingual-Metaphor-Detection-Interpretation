@@ -161,7 +161,7 @@ class SentenceAnalysis(BaseModel):
     sentence: str
     label: str
     confidence: float
-    interpretations: InterpretationData
+    interpretations: Optional[InterpretationData] = None
     word_attributions: Optional[List[TokenSaliency]] = None
     decision_reasoning: Optional[str] = None
     is_verified: Optional[bool] = None
@@ -347,30 +347,37 @@ def compute_xai_saliency(text: str, model, tokenizer, label: str):
 
 def generate_gemini_interpretation(text: str, language: str, target_language: str = "English") -> InterpretationData:
     """
-    Generate multi-layered interpretation using Gemini API
-    Returns literal, emotional, philosophical, and cultural interpretations in the target language
+def generate_gemini_interpretation(text: str, language: str, target_language: str = "English", model_label: str = "metaphor") -> tuple[Optional[InterpretationData], bool, str]:
     """
+    Generate multi-layered interpretation using Gemini API and perform unified validation.
+    If the model misclassified a literal sentence as a metaphor, returns no 5-layer interpretation
+    and notifies that the sentence contains no metaphor.
+    """
+    # Check if Gemini API is configured
+    if not GEMINI_API_KEY:
+        logger.error("Gemini API key not configured")
+        return (
+            InterpretationData(
+                translation="⚠️ Translation unavailable - please configure GEMINI_API_KEY",
+                literal="Translation unavailable",
+                emotional="AI interpretation unavailable",
+                philosophical="AI interpretation unavailable",
+                cultural="AI interpretation unavailable"
+            ),
+            False,
+            "Verification unavailable (No API Key)"
+        )
+    
     # Check cache first
-    cache_key = get_interpretation_cache_key(text, language, target_language)
+    cache_key = get_interpretation_cache_key(f"{text}:{model_label}", language, target_language)
     if cache_key in interpretation_cache:
         logger.info(f"🎯 Using cached interpretation for: {text[:30]}...")
         return interpretation_cache[cache_key]
     
-    # Check if Gemini API is configured
-    if not GEMINI_API_KEY:
-        logger.error("Gemini API key not configured")
-        return InterpretationData(
-            translation="⚠️ Translation unavailable - please configure GEMINI_API_KEY",
-            literal="Translation unavailable",
-            emotional="AI interpretation unavailable",
-            philosophical="AI interpretation unavailable",
-            cultural="AI interpretation unavailable"
-        )
-    
     try:
         if not gemma_client:
             raise Exception("Gemma API client not configured")
-        # Language name mapping
+        
         lang_names = {
             'hindi': 'Hindi',
             'tamil': 'Tamil',
@@ -382,107 +389,97 @@ def generate_gemini_interpretation(text: str, language: str, target_language: st
         language_name = lang_names.get(language, language.title())
         target_language_name = lang_names.get(target_language.lower(), target_language.title())
         
-        # Enhanced prompt for multi-layered interpretation
         prompt = f"""
-You are a multilingual interpretation assistant specializing in metaphor analysis.
-The following sentence is written in {language_name}.
+You are an expert computational linguist specializing in Indic languages and metaphor analysis.
+Sentence ({language_name}): "{text}"
+The neural classification model predicted this sentence is: **{model_label.upper()}**
 
-Sentence: "{text}"
+Your task:
+1. Determine if this sentence ACTUALLY contains a metaphor or is purely literal.
+2. If it is purely LITERAL (and the model incorrectly flagged it as metaphor, or it has no metaphor):
+   Output:
+   VALIDATION: MISMATCH (Literal sentence with no metaphor detected)
+   REASON: [Brief 1-sentence explanation of why it is literal in {target_language_name}]
+   TRANSLATION: [Direct translation into {target_language_name}]
 
-Your task is to analyze the sentence carefully and output exactly **5 labeled lines**
-in {target_language_name} (labels must remain in English).
-
-Translation: Translate the sentence into natural {target_language_name}, preserving any metaphorical expressions. Do NOT explain or paraphrase the metaphor.
-Literal: Translate the sentence word-for-word into grammatically correct {target_language_name}, even if the result sounds unnatural.
-Emotional: Describe the emotional state or feeling conveyed by the sentence in {target_language_name}.
-Philosophical: Explain the deeper abstract meaning or life insight behind the metaphor in {target_language_name}.
-Cultural: Describe the Indian or general cultural understanding of this metaphor in {target_language_name}.
+3. If it IS a METAPHOR (or genuinely metaphorical):
+   Output:
+   VALIDATION: VERIFIED
+   Translation: Translate the sentence into natural {target_language_name}, preserving the metaphor.
+   Literal: Translate the sentence word-for-word into grammatically correct {target_language_name}.
+   Emotional: Describe the emotional mood/feeling in {target_language_name}.
+   Philosophical: Explain the deeper abstract insight or life lesson in {target_language_name}.
+   Cultural: Describe the cultural nuance or Indian idiom context in {target_language_name}.
 
 CRITICAL RULES:
-- Always produce exactly 5 lines.
-- Each line must begin with its label followed by a colon.
-- Do NOT number, bullet, or add extra text.
-- Translation and Literal must be single-sentence outputs.
-- Emotional, Philosophical, and Cultural may be 1–2 sentences.
-- If the sentence is not metaphorical:
-  Translation: No metaphor detected — literal sentence. (translated to {target_language_name})
-  and complete the remaining lines accordingly.
-- Do not include explanations, reasoning, or commentary outside the 5 lines.
-
-Your response must contain exactly 5 labeled lines and nothing else.
+- If VALIDATION is MISMATCH, do NOT generate Literal, Emotional, Philosophical, or Cultural lines.
+- Each line must start with its label followed by a colon.
 """
 
-        
-        # Generate the interpretation with safety settings
         response = gemma_client.models.generate_content(
             model="gemma-4-26b-a4b-it",
             contents=prompt,
             config=types.GenerateContentConfig(
-                temperature=0.7,
+                temperature=0.3,
             )
         )
         
         if response and hasattr(response, 'text') and response.text:
             interpretation_text = response.text
-            logger.info(f"✅ Generated Gemini interpretation")
-            logger.info(f"Raw Gemini response:\n{interpretation_text}")
+            logger.info(f"✅ Generated single-pass interpretation:\n{interpretation_text}")
             
-            # Parse the response
+            is_verified = True
+            verification_status = "Verified by Gemini"
             translation = ""
             literal = ""
             emotional = ""
             philosophical = ""
             cultural = ""
             
-            lines = interpretation_text.split('\n')
+            lines = [l.strip() for l in interpretation_text.split('\n') if l.strip()]
             for line in lines:
-                line = line.strip()
-                if not line:  # Skip empty lines
-                    continue
-                    
-                # Try to extract values with case-insensitive matching
                 line_lower = line.lower()
-                if line_lower.startswith('translation:'):
+                if line_lower.startswith('validation:'):
+                    val = line.split(':', 1)[1].strip()
+                    if 'mismatch' in val.lower() or 'literal' in val.lower():
+                        is_verified = False
+                        verification_status = "Model misclassification: Sentence is literal (No metaphor detected)"
+                elif line_lower.startswith('reason:'):
+                    verification_status = f"Literal sentence: {line.split(':', 1)[1].strip()}"
+                elif line_lower.startswith('translation:'):
                     translation = line.split(':', 1)[1].strip()
-                    logger.info(f"Parsed translation: {translation}")
                 elif line_lower.startswith('literal:'):
                     literal = line.split(':', 1)[1].strip()
-                    logger.info(f"Parsed literal: {literal}")
                 elif line_lower.startswith('emotional:'):
                     emotional = line.split(':', 1)[1].strip()
-                    logger.info(f"Parsed emotional: {emotional}")
                 elif line_lower.startswith('philosophical:'):
                     philosophical = line.split(':', 1)[1].strip()
-                    logger.info(f"Parsed philosophical: {philosophical}")
                 elif line_lower.startswith('cultural:'):
                     cultural = line.split(':', 1)[1].strip()
-                    logger.info(f"Parsed cultural: {cultural}")
             
-            # Fallback if parsing fails
-            if not translation:
-                logger.warning("Translation not found in parsed response, using full text as fallback")
-                translation = interpretation_text[:200] if len(interpretation_text) > 200 else interpretation_text
-            if not literal:
-                literal = "Literal meaning available in translation"
-            if not emotional:
-                emotional = "Interpretation available"
-            if not philosophical:
-                philosophical = "Interpretation available"
-            if not cultural:
-                cultural = "Interpretation available"
+            if not is_verified or (model_label == "normal" and not literal):
+                # When model was wrong or sentence is literal, suppress 5-layer output
+                result_data = (None, False, verification_status or "Literal sentence: No metaphor detected")
+            else:
+                if not translation:
+                    translation = text
+                interp = InterpretationData(
+                    translation=translation,
+                    literal=literal or "Literal translation available above",
+                    emotional=emotional or "N/A",
+                    philosophical=philosophical or "N/A",
+                    cultural=cultural or "N/A"
+                )
+                result_data = (interp, True, "Verified by Gemini")
             
-            logger.info(f"Final interpretation - Translation: {translation}, Literal: {literal}")
+            interpretation_cache[cache_key] = result_data
+            return result_data
+        else:
+            raise Exception("No response from AI model")
             
-            result = InterpretationData(
-                translation=translation,
-                literal=literal,
-                emotional=emotional,
-                philosophical=philosophical,
-                cultural=cultural
-            )
-            
-            # Cache the result
-            interpretation_cache[cache_key] = result
+    except Exception as e:
+        logger.error(f"❌ Error in single-pass interpretation: {str(e)}")
+        return (None, False, f"Verification skipped: {str(e)[:100]}")
             logger.info(f"💾 Cached interpretation for: {text[:30]}...")
             
             return result
@@ -951,29 +948,14 @@ async def predict(input_data: TextInput):
             
             logger.info(f"Sentence: '{sentence[:50]}...' -> {sentence_label} ({confidence:.4f})")
             
-            # Generate Gemini interpretation for this sentence (run in thread pool)
-            interpretations = await asyncio.to_thread(
+            # Single-pass Gemini cognitive interpretation & validation (no separate call)
+            interpretations, is_verified, verification_status = await asyncio.to_thread(
                 generate_gemini_interpretation,
                 sentence,
                 language,
-                input_data.interpretation_language
+                input_data.interpretation_language,
+                sentence_label
             )
-            
-            # Get Gemini's prediction for verification
-            gemini_prediction = get_gemini_prediction(sentence, language)
-            
-            # Verify the model's prediction with Gemini
-            is_verified = False
-            verification_status = ""
-            
-            if gemini_prediction["label"] != "error":
-                is_verified = (gemini_prediction["label"] == sentence_label)
-                if is_verified:
-                    verification_status = "Verified by Gemini"
-                else:
-                    verification_status = f"Prediction mismatch with Gemini (Gemini predicted: {gemini_prediction['label']})"
-            else:
-                verification_status = "Verification failed: " + gemini_prediction.get("error", "Unknown error")
             
             # Compute XAI feature attributions (saliency) for explainability proof
             word_attributions, decision_reasoning = compute_xai_saliency(
@@ -1038,7 +1020,7 @@ async def predict(input_data: TextInput):
             "interpretation_language": input_data.interpretation_language,
             "session_id": input_data.session_id,
             # Legacy fields for backward compatibility
-            "translation": sentence_analyses[0].interpretations.translation if sentence_analyses else "",
+            "translation": sentence_analyses[0].interpretations.translation if (sentence_analyses and sentence_analyses[0].interpretations) else "",
             "explanation": ""
         }
         
