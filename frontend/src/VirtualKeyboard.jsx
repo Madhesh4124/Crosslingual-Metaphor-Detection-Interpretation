@@ -128,16 +128,16 @@ const VirtualKeyboard = ({ language, onKeyPress, onClose }) => {
   return (
     <div className="virtual-keyboard">
       <div className="keyboard-header">
-        <h3>⌨️ {currentKeyboard.name} Keyboard</h3>
-        <button 
-          className="close-keyboard" 
+        <h3>{currentKeyboard.name}</h3>
+        <button
+          className="close-keyboard"
           onClick={onClose}
           title="Close keyboard (Esc)"
         >
           ✕
         </button>
       </div>
-      
+
       <div className="keyboard-body">
         {currentKeyboard.rows.map((row, rowIndex) => (
           <div key={rowIndex} className="keyboard-row">
@@ -152,19 +152,19 @@ const VirtualKeyboard = ({ language, onKeyPress, onClose }) => {
             ))}
           </div>
         ))}
-        
+
         <div className="keyboard-row keyboard-controls">
-          <button 
-            className={`keyboard-key key-backspace ${activeKey === 'BACKSPACE' ? 'active' : ''}`} 
+          <button
+            className={`keyboard-key key-backspace ${activeKey === 'BACKSPACE' ? 'active' : ''}`}
             onClick={handleBackspace}
           >
-            ⌫ Backspace
+            Backspace
           </button>
-          <button 
-            className={`keyboard-key key-space ${activeKey === 'SPACE' ? 'active' : ''}`} 
+          <button
+            className={`keyboard-key key-space ${activeKey === 'SPACE' ? 'active' : ''}`}
             onClick={handleSpace}
           >
-            ⎵ Space
+            Space
           </button>
         </div>
       </div>

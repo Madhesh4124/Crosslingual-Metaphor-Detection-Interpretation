@@ -66,7 +66,16 @@ temp_*
 *.tmp
 
 # Private / internal docs
-STUDY.md
-upload.txt
-report.txt
-DIARY.md
+
+unseen_data.txt
+.ua
+.venv
+RESOURCES.md
+NOTES.md
+MISSION.md
+/reference
+/lessons
+/learning-records
+/models
+
+

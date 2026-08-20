@@ -26,12 +26,13 @@ async def connect_to_mongodb():
     global mongodb_client, database
     
     try:
-        logger.info(f"Connecting to MongoDB at {MONGODB_URL}")
-        mongodb_client = AsyncIOMotorClient(MONGODB_URL)
-        database = mongodb_client[MONGODB_DB_NAME]
+        masked_url = "MongoDB Atlas Cluster" if "mongodb+srv" in MONGODB_URL else MONGODB_URL.split("@")[-1]
+        logger.info(f"Connecting to MongoDB ({masked_url})...")
+        mongodb_client = AsyncIOMotorClient(MONGODB_URL, serverSelectionTimeoutMS=2000)
         
         # Test the connection
         await mongodb_client.admin.command('ping')
+        database = mongodb_client[MONGODB_DB_NAME]
         logger.info(f"✓ Successfully connected to MongoDB database: {MONGODB_DB_NAME}")
         
         # Create indexes for better query performance
@@ -42,6 +43,8 @@ async def connect_to_mongodb():
         
         return True
     except Exception as e:
+        database = None
+        mongodb_client = None
         logger.error(f"✗ Failed to connect to MongoDB: {str(e)}")
         logger.warning("History feature will be disabled")
         return False
@@ -83,7 +86,7 @@ async def save_prediction(prediction_data: dict) -> Optional[str]:
         return None
 
 
-async def get_prediction_history(limit: int = 50, skip: int = 0, language: Optional[str] = None, label: Optional[str] = None) -> List[dict]:
+async def get_prediction_history(limit: int = 50, skip: int = 0, language: Optional[str] = None, label: Optional[str] = None, session_id: Optional[str] = None) -> List[dict]:
     """
     Get prediction history from database
     
@@ -92,6 +95,7 @@ async def get_prediction_history(limit: int = 50, skip: int = 0, language: Optio
         skip: Number of results to skip (for pagination)
         language: Filter by language (optional)
         label: Filter by label (metaphor/normal) (optional)
+        session_id: Filter by user session (optional)
         
     Returns:
         List of prediction documents
@@ -115,9 +119,11 @@ async def get_prediction_history(limit: int = 50, skip: int = 0, language: Optio
         # Convert ObjectId to string for JSON serialization
         for pred in predictions:
             pred["_id"] = str(pred["_id"])
-            # Convert datetime to ISO format string
-            if "timestamp" in pred:
+            # Convert datetime to ISO format string if it's a datetime object
+            if "timestamp" in pred and hasattr(pred["timestamp"], "isoformat"):
                 pred["timestamp"] = pred["timestamp"].isoformat()
+            elif "timestamp" in pred:
+                pred["timestamp"] = str(pred["timestamp"])
         
         return predictions
     except Exception as e:
@@ -144,8 +150,10 @@ async def get_prediction_by_id(prediction_id: str) -> Optional[dict]:
         
         if prediction:
             prediction["_id"] = str(prediction["_id"])
-            if "timestamp" in prediction:
+            if "timestamp" in prediction and hasattr(prediction["timestamp"], "isoformat"):
                 prediction["timestamp"] = prediction["timestamp"].isoformat()
+            elif "timestamp" in prediction:
+                prediction["timestamp"] = str(prediction["timestamp"])
         
         return prediction
     except Exception as e:

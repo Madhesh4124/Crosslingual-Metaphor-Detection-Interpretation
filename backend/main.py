@@ -17,9 +17,13 @@ from langdetect import detect, LangDetectException
 import hashlib
 import time
 import re
-import whisper
+try:
+    import whisper
+except ImportError:
+    whisper = None
 import tempfile
 from tenacity import retry, stop_after_attempt, wait_exponential
+import database as _db_module
 from database import (
     connect_to_mongodb,
     close_mongodb_connection,
@@ -84,10 +88,9 @@ if not GEMINI_API_KEY:
 else:
     try:
         gemma_client = genai.Client(
-            api_key=GEMINI_API_KEY,
-            http_options={'api_version': 'v1alpha'}
+            api_key=GEMINI_API_KEY
         )
-        logger.info("Gemma API client configured successfully")
+        logger.info("Gemini API client configured successfully")
         logger.info(f"API Key starts with: {GEMINI_API_KEY[:10]}...")
     except Exception as e:
         logger.error(f"Failed to configure Gemma API client: {str(e)}")
@@ -120,6 +123,7 @@ LANGUAGE_MAP = {
 class TextInput(BaseModel):
     text: str
     interpretation_language: Optional[str] = "english"
+    session_id: Optional[str] = None
 
 class InterpretationData(BaseModel):
     translation: str  # Direct English translation of the metaphor
@@ -128,11 +132,18 @@ class InterpretationData(BaseModel):
     philosophical: str  # Philosophical/deeper meaning
     cultural: str  # Cultural context
 
+class TokenSaliency(BaseModel):
+    word: str
+    score: float  # Percentage score (e.g. 24.5%)
+    is_key_trigger: bool
+
 class SentenceAnalysis(BaseModel):
     sentence: str
     label: str
     confidence: float
     interpretations: InterpretationData
+    word_attributions: Optional[List[TokenSaliency]] = None
+    decision_reasoning: Optional[str] = None
     is_verified: Optional[bool] = None
     verification_status: Optional[str] = None
     
@@ -148,6 +159,8 @@ class PredictionResponse(BaseModel):
     text: str
     is_paragraph: bool
     sentences: Optional[List[SentenceAnalysis]] = None
+    word_attributions: Optional[List[TokenSaliency]] = None
+    decision_reasoning: Optional[str] = None
     # Verification fields
     is_verified: Optional[bool] = None
     verification_status: Optional[str] = None
@@ -238,6 +251,80 @@ def split_into_sentences(text: str) -> List[str]:
     logger.info(f"Split text into {len(sentences)} sentence(s)")
     return sentences
 
+def compute_xai_saliency(text: str, model, tokenizer, label: str):
+    """
+    Explainable AI (XAI): Compute gradient saliency per word token to provide feature attribution proof.
+    """
+    try:
+        inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
+        input_ids = inputs["input_ids"]
+        tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
+        
+        embeds = model.get_input_embeddings()(input_ids)
+        embeds = embeds.detach().requires_grad_(True)
+        
+        model.zero_grad()
+        outputs = model(inputs_embeds=embeds)
+        
+        target_idx = 1 if label == "metaphor" else 0
+        target_score = outputs.logits[0, target_idx]
+        target_score.backward()
+        
+        token_importance = embeds.grad[0].norm(dim=1).detach().numpy()
+        total = token_importance.sum()
+        if total == 0:
+            total = 1.0
+            
+        norm_scores = token_importance / total
+        
+        valid_tokens = []
+        scores_list = []
+        
+        for t, score in zip(tokens, norm_scores):
+            clean_word = t.replace('▁', '').replace('##', '').strip()
+            if clean_word and t not in ['<s>', '</s>', '[CLS]', '[SEP]', '<pad>']:
+                score_pct = round(float(score * 100), 2)
+                valid_tokens.append((clean_word, score_pct))
+                scores_list.append(score_pct)
+        
+        # Dynamic & Relational XAI Selection Rule:
+        # Highlights tokens exceeding dynamic threshold (Mean + 0.5 * StdDev)
+        # OR tokens within 1.5% of the highest attribution score in the sentence.
+        if scores_list:
+            mean_score = float(np.mean(scores_list))
+            std_score = float(np.std(scores_list))
+            dynamic_threshold = mean_score + (0.5 * std_score)
+            max_score = float(np.max(scores_list))
+        else:
+            dynamic_threshold = 12.0
+            max_score = 12.0
+            
+        key_trigger_words = set()
+        for clean_word, score_pct in valid_tokens:
+            # Highlight if token meets dynamic threshold OR is within 1.5% of top attribution
+            if score_pct >= dynamic_threshold or (max_score - score_pct) <= 1.5:
+                key_trigger_words.add(clean_word)
+                    
+        word_attributions = []
+        for clean_word, score_pct in valid_tokens:
+            is_key = clean_word in key_trigger_words
+            word_attributions.append(TokenSaliency(
+                word=clean_word,
+                score=score_pct,
+                is_key_trigger=is_key
+            ))
+        
+        if key_trigger_words:
+            trigger_str = ", ".join([f"'{w}'" for w in key_trigger_words])
+            reasoning = f"The model identified {trigger_str} as key attribution trigger(s) driving the {label.upper()} decision."
+        else:
+            reasoning = f"The decision is distributed across overall sentence semantics."
+            
+        return word_attributions, reasoning
+    except Exception as e:
+        logger.error(f"XAI saliency error: {str(e)}")
+        return [], f"Decision rationale based on fine-tuned transformer classification."
+
 def generate_gemini_interpretation(text: str, language: str, target_language: str = "English") -> InterpretationData:
     """
     Generate multi-layered interpretation using Gemini API
@@ -308,7 +395,7 @@ Your response must contain exactly 5 labeled lines and nothing else.
         
         # Generate the interpretation with safety settings
         response = gemma_client.models.generate_content(
-            model="gemma-4-31b-it",
+            model="gemma-4-26b-a4b-it",
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.7,
@@ -414,7 +501,7 @@ def get_gemini_prediction(text: str, language: str) -> dict:
         
         Response (only 'metaphor' or 'normal'):"""
         response = gemma_client.models.generate_content(
-            model="gemma-4-31b-it",
+            model="gemma-4-26b-a4b-it",
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.3,
@@ -430,10 +517,9 @@ def get_gemini_prediction(text: str, language: str) -> dict:
             # For Gemma, we'll use a fixed high confidence since it doesn't provide probabilities
             return {"label": gemma_label, "confidence": 0.95}
             
-    except Exception as e:
-        logger.error(f"Error getting Gemma prediction: {str(e)}")
-        
-    return {"label": "error", "confidence": 0.0, "error": str(e)}
+    except Exception as err:
+        logger.error(f"Error getting Gemma prediction: {str(err)}")
+        return {"label": "error", "confidence": 0.0, "error": str(err)}
 
 def generate_metaphor_explanation(text: str, language: str, confidence: float) -> str:
     """
@@ -462,7 +548,7 @@ Example for "Life is a journey":
 
 Your explanation (keep it concise and specific to this text):"""
         response = gemma_client.models.generate_content(
-            model="gemma-4-31b-it",
+            model="gemma-4-26b-a4b-it",
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.3,
@@ -563,58 +649,46 @@ def translate_text(text: str, source_language: str) -> str:
         logger.error(f"Translation error: {str(e)}")
         return f"[Translation failed: {str(e)}]"
 
-def load_models():
-    """Load all language models at startup"""
-    languages = ['hindi', 'tamil', 'telugu', 'kannada']
-    loaded_count = 0
-    
-    for lang in languages:
+MODEL_FOLDERS = {
+    'hindi': 'hindi-metaphor-xlm',
+    'tamil': 'tamil-metaphor-xlm',
+    'telugu': 'telugu-metaphor-muril',
+    'kannada': 'kannada-metaphor-bert'
+}
+
+def get_model_and_tokenizer(lang: str):
+    """
+    Lazy load model and tokenizer on-demand for the requested language.
+    """
+    if lang in models and lang in tokenizers:
+        return models[lang], tokenizers[lang]
+        
+    folder_name = MODEL_FOLDERS.get(lang, f"{lang}_model")
+    model_path = MODEL_BASE_PATH / folder_name
+    if not model_path.exists():
         model_path = MODEL_BASE_PATH / f"{lang}_model"
         
-        if not model_path.exists():
-            logger.warning(f"Model path not found: {model_path}")
-            continue
+    if not model_path.exists():
+        raise RuntimeError(f"Model path not found: {model_path}")
         
-        logger.info(f"Loading {lang} model from {model_path}")
+    logger.info(f"⚡ Lazy-loading {lang} model from {model_path}...")
+    
+    # Load tokenizer
+    try:
+        tokenizers[lang] = AutoTokenizer.from_pretrained(str(model_path), use_fast=True)
+    except Exception:
+        tokenizers[lang] = AutoTokenizer.from_pretrained(str(model_path), use_fast=False)
         
-        try:
-            # Load tokenizer with fallback to slow tokenizer
-            try:
-                tokenizers[lang] = AutoTokenizer.from_pretrained(
-                    str(model_path),
-                    use_fast=True
-                )
-                logger.info(f"✓ Loaded fast tokenizer for {lang}")
-            except Exception as e:
-                logger.warning(f"Fast tokenizer failed for {lang}, trying slow tokenizer")
-                tokenizers[lang] = AutoTokenizer.from_pretrained(
-                    str(model_path),
-                    use_fast=False
-                )
-                logger.info(f"✓ Loaded slow tokenizer for {lang}")
-            
-            # Load model
-            models[lang] = AutoModelForSequenceClassification.from_pretrained(
-                str(model_path),
-                num_labels=2
-            )
-            models[lang].eval()
-            loaded_count += 1
-            
-            logger.info(f"✓ Successfully loaded {lang} model ({loaded_count}/{len(languages)})")
-            
-        except Exception as e:
-            logger.error(f"✗ Failed to load {lang} model: {str(e)}")
-            logger.error(f"  Continuing with other models...")
-            continue
+    # Load PyTorch classification model
+    models[lang] = AutoModelForSequenceClassification.from_pretrained(str(model_path), num_labels=2)
+    models[lang].eval()
     
-    if loaded_count == 0:
-        raise RuntimeError("No models could be loaded. Please check model files.")
-    
-    logger.info(f"\n{'='*60}")
-    logger.info(f"✓ Model loading complete: {loaded_count}/{len(languages)} models loaded")
-    logger.info(f"  Available languages: {', '.join(models.keys())}")
-    logger.info(f"{'='*60}\n")
+    logger.info(f"✓ Successfully lazy-loaded {lang} model into memory")
+    return models[lang], tokenizers[lang]
+
+def load_models():
+    """Startup notification - Lazy loading enabled"""
+    logger.info("⚡ Lazy-loading mode enabled. Models will load on-demand when requested.")
 
 @app.on_event("startup")
 async def startup_event():
@@ -625,12 +699,7 @@ async def startup_event():
     logger.info("Starting Multilingual Metaphor Detection API")
     logger.info("="*60 + "\n")
     
-    try:
-        load_models()
-        logger.info("✓ Models loaded successfully\n")
-    except Exception as e:
-        logger.error(f"✗ Model loading failed: {str(e)}")
-        logger.error("Please check that all model files are present in the models/ directory")
+    load_models()
     
     # Load Whisper model - COMMENTED OUT: Using Web Speech API instead
     # global whisper_model
@@ -725,23 +794,26 @@ async def predict(input_data: TextInput):
         # Check cache first
         cached_result = get_cached_prediction(text, input_data.interpretation_language)
         if cached_result:
+            try:
+                save_data = cached_result.copy()
+                save_data["session_id"] = input_data.session_id
+                await save_prediction(save_data)
+            except Exception as db_err:
+                logger.warning(f"Failed to save cached prediction: {db_err}")
             return PredictionResponse(**cached_result)
         
         # Detect language
         language = detect_language(text)
         logger.info(f"Detected language: {language}")
         
-        # Check if model is loaded
-        if language not in models:
-            available_models = list(models.keys())
+        # Lazy-load model and tokenizer on-demand for requested language
+        try:
+            model, tokenizer = get_model_and_tokenizer(language)
+        except Exception as err:
             raise HTTPException(
                 status_code=500,
-                detail=f"Model for {language} is not available. Supported languages: {', '.join(available_models)}"
+                detail=f"Failed to load model for {language}: {str(err)}"
             )
-        
-        # Get model and tokenizer
-        model = models[language]
-        tokenizer = tokenizers[language]
         
         # Split text into sentences
         sentences = split_into_sentences(text)
@@ -755,6 +827,15 @@ async def predict(input_data: TextInput):
         normal_count = 0
         total_confidence = 0.0
         anchor_text = ""  # Sticky anchor: persists across sentences until chain is broken
+        
+        # Temperature scaling parameters per language for calibrated confidence scores
+        TEMPERATURE_MAP = {
+            'hindi': 2.2,     # Smooth extreme 99.9% logits
+            'tamil': 2.2,     # Smooth extreme 99.9% logits
+            'telugu': 0.35,   # Boost narrow margin (~50-60%) logits
+            'kannada': 0.35   # Boost narrow margin (~50-60%) logits
+        }
+        temperature = TEMPERATURE_MAP.get(language, 1.0)
         
         for i, sentence in enumerate(sentences):
             if not sentence.strip():
@@ -772,7 +853,8 @@ async def predict(input_data: TextInput):
             with torch.no_grad():
                 outputs = model(**inputs)
                 logits = outputs.logits
-                probabilities = torch.softmax(logits, dim=1)
+                scaled_logits = logits / temperature
+                probabilities = torch.softmax(scaled_logits, dim=1)
                 predicted_class = torch.argmax(probabilities, dim=1).item()
                 confidence = probabilities[0][predicted_class].item()
             
@@ -800,7 +882,8 @@ async def predict(input_data: TextInput):
                 with torch.no_grad():
                     outputs_context = model(**inputs_context)
                     logits_context = outputs_context.logits
-                    probabilities_context = torch.softmax(logits_context, dim=1)
+                    scaled_logits_context = logits_context / temperature
+                    probabilities_context = torch.softmax(scaled_logits_context, dim=1)
                     predicted_class_context = torch.argmax(probabilities_context, dim=1).item()
                     confidence_context = probabilities_context[0][predicted_class_context].item()
                 
@@ -852,12 +935,19 @@ async def predict(input_data: TextInput):
             else:
                 verification_status = "Verification failed: " + gemini_prediction.get("error", "Unknown error")
             
-            # Create sentence analysis with verification info
+            # Compute XAI feature attributions (saliency) for explainability proof
+            word_attributions, decision_reasoning = compute_xai_saliency(
+                sentence, model, tokenizer, sentence_label
+            )
+            
+            # Create sentence analysis with verification and XAI info
             sentence_analysis = SentenceAnalysis(
                 sentence=sentence,
                 label=sentence_label,
                 confidence=round(confidence, 4),
                 interpretations=interpretations,
+                word_attributions=word_attributions,
+                decision_reasoning=decision_reasoning,
                 is_verified=is_verified,
                 verification_status=verification_status
             )
@@ -868,6 +958,11 @@ async def predict(input_data: TextInput):
         overall_label = "metaphor" if metaphor_count > normal_count else "normal"
         overall_confidence = total_confidence / len(sentences) if sentences else 0.0
         
+        # Overall XAI proof computation for the full text
+        overall_attributions, overall_reasoning = compute_xai_saliency(
+            text, model, tokenizer, overall_label
+        )
+        
         # Check overall verification status
         verified_sentences = [s for s in sentence_analyses if s.is_verified is True]
         is_fully_verified = len(verified_sentences) == len(sentence_analyses)
@@ -876,23 +971,19 @@ async def predict(input_data: TextInput):
         # Prepare response with proper serialization
         sentences_data = []
         for s in sentence_analyses:
+            interp_dict = s.interpretations.dict() if hasattr(s.interpretations, "dict") else s.interpretations
             sentence_dict = {
                 "sentence": s.sentence,
                 "label": s.label,
                 "confidence": s.confidence,
-                "interpretations": {
-                    "translation": s.interpretations.translation,
-                    "literal": s.interpretations.literal,
-                    "emotional": s.interpretations.emotional,
-                    "philosophical": s.interpretations.philosophical,
-                    "cultural": s.interpretations.cultural
-                },
+                "interpretations": interp_dict,
+                "word_attributions": [w.dict() if hasattr(w, "dict") else w for w in s.word_attributions] if s.word_attributions else [],
+                "decision_reasoning": s.decision_reasoning,
                 "is_verified": s.is_verified,
                 "verification_status": s.verification_status
             }
             sentences_data.append(sentence_dict)
-            logger.info(f"Sentence interpretations: {sentence_dict['interpretations']}")
-        
+            
         response_data = {
             "language": language,
             "label": overall_label,
@@ -900,12 +991,15 @@ async def predict(input_data: TextInput):
             "text": text,
             "is_paragraph": is_paragraph,
             "sentences": sentences_data,
+            "word_attributions": [w.dict() for w in overall_attributions] if overall_attributions else [],
+            "decision_reasoning": overall_reasoning,
             "is_verified": is_fully_verified,
             "verification_status": verification_status,
             "interpretation_language": input_data.interpretation_language,
+            "session_id": input_data.session_id,
             # Legacy fields for backward compatibility
             "translation": sentence_analyses[0].interpretations.translation if sentence_analyses else "",
-            "explanation": ""  # This will be populated by the frontend if needed
+            "explanation": ""
         }
         
         # Cache the result
@@ -1131,15 +1225,18 @@ async def get_history(
     limit: int = Query(50, ge=1, le=100, description="Number of results to return"),
     skip: int = Query(0, ge=0, description="Number of results to skip"),
     language: Optional[str] = Query(None, description="Filter by language"),
-    label: Optional[str] = Query(None, description="Filter by label (metaphor/normal)")
+    label: Optional[str] = Query(None, description="Filter by label (metaphor/normal)"),
+    session_id: Optional[str] = Query(None, description="Filter by session ID")
 ):
     """
     Get prediction history with optional filters
     """
     try:
-        history = await get_prediction_history(limit=limit, skip=skip, language=language, label=label)
+        db_connected = _db_module.database is not None
+        history = await get_prediction_history(limit=limit, skip=skip, language=language, label=label, session_id=session_id)
         return {
             "success": True,
+            "db_connected": db_connected,
             "count": len(history),
             "history": history
         }

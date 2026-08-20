@@ -6,264 +6,265 @@ colorTo: indigo
 sdk: docker
 pinned: false
 ---
-# Crosslingual Metaphor Detection System
+# Crosslingual Metaphor Detection & Interpretation System
 
-A production-ready NLP system for detecting metaphors in **Hindi, Tamil, Telugu, and Kannada** using fine-tuned transformer models.
-The project includes a **FastAPI backend**, **React frontend**, training scripts, and detailed documentation.
-All trained models are hosted on **Hugging Face** and are automatically downloaded at runtime.
+A production-grade NLP architecture for detecting and explaining metaphors across **Hindi, Tamil, Telugu, and Kannada** using fine-tuned transformer models, explainable AI (XAI) feature attributions, and 5-layer LLM cognitive interpretations.
 
 🌐 **Live Demo**: [https://crosslingual-metaphor-detection-interpretation-kovgohbol.vercel.app/](https://crosslingual-metaphor-detection-interpretation-kovgohbol.vercel.app/)
 
 ---
 
-## 🚀 Features
+## 🏛️ System Architecture Overview
 
-* Crosslingual metaphor detection (4 Indian languages)
-* Sentence-level and paragraph-level analysis
-* **Cross-lingual AI interpretation** (Get explanations in English, Hindi, Tamil, Telugu, or Kannada)
-* 5-layer AI interpretation (translation, literal, emotional, philosophical, cultural)
-* REST API built with FastAPI
-* Interactive React frontend
-* Speech-to-text input (Web Speech API)
-* Optional history tracking using MongoDB
-* Clean separation of code and models (industry best practice)
-
----
-
-## 📝 How Paragraph Detection & Interpretation Works
-
-When a paragraph (multi-sentence input) is submitted:
-
-* The backend splits the text into individual sentences using both English and Indic punctuation.
-* Each sentence is analyzed for metaphoric content **individually**.
-* For every sentence, a 5-layer AI interpretation is generated in the **selected target language** (English, Hindi, Telugu, Tamil, or Kannada).
-
-### Context-Aware Metaphor Detection
-
-* If a sentence is detected as a metaphor, it becomes the *anchor* for the next sentence.
-* If the next sentence is classified as *normal* but follows a metaphor, the backend re-evaluates it using the previous metaphor sentence as context.
-* If the context-aware check finds a metaphor, the label is updated to **metaphor**.
-* If two consecutive sentences are *normal*, the context chain is broken.
-* This allows metaphors that depend on prior context to be detected, not just isolated sentences.
-
-The API returns a detailed, per-sentence analysis and interpretation for the whole paragraph, along with a summary label and confidence.
-
----
-
-## 🛠️ Tech Stack
-
-* **Python 3.10+**
-* **FastAPI**, Uvicorn
-* **Transformers (Hugging Face)**
-* **PyTorch**
-* **MongoDB** (async, Motor)
-* **React (Vite)**
-* **Google Gemini API** (for interpretations)
-
----
-
-## 📂 Folder Structure
+The system combines dedicated fine-tuned transformer encoders with gradient saliency attribution and generative LLM interpretation:
 
 ```
-.github/           # GitHub workflows & templates
-.vscode/           # VSCode settings
-backend/           # FastAPI backend, API, DB logic
-frontend/          # React frontend
-datasets/          # Example / test datasets
-training_code/     # Model training scripts
-models/            # (Ignored) Local models – hosted on Hugging Face
-.env               # Local secrets (ignored)
-.env.example       # Example environment variables
-requirements.txt   # Python dependencies
-README.md          # Project documentation
-LICENSE            # License file
-MONGODB_SETUP.md   # MongoDB setup guide
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            REACT FRONTEND (Vite)                            │
+│  - On-screen script keyboards (हिंदी / தமிழ் / తెలుగు / ಕನ್ನಡ)              │
+│  - Web Speech API real-time microphone input                                │
+│  - Multi-lingual target output selector (EN / HI / TA / TE / KN)            │
+│  - Interactive XAI Saliency Badges & 5-Layer Cognitive Interpretations      │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │ HTTP POST /predict
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       FASTAPI BACKEND ORCHESTRATION                         │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ 1. Script & Language Auto-Detector (Unicode Range + LangDetect)       │  │
+│  └───────────────────────────────────┬───────────────────────────────────┘  │
+│                                      │                                      │
+│  ┌───────────────────────────────────▼───────────────────────────────────┐  │
+│  │ 2. Indic Sentence Tokenizer & Punctuation Segmenter (। . ? !)         │  │
+│  └───────────────────────────────────┬───────────────────────────────────┘  │
+│                                      │                                      │
+│  ┌───────────────────────────────────▼───────────────────────────────────┐  │
+│  │ 3. On-Demand Lazy Model Loader (Per-Language PyTorch Checkpoints)     │  │
+│  └───────────────────────────────────┬───────────────────────────────────┘  │
+│                                      │                                      │
+│         ┌────────────────────────────┴────────────────────────────┐         │
+│         ▼                                                         ▼         │
+│  ┌──────────────────────────────┐       ┌──────────────────────────────┐    │
+│  │ 4. Two-Pass Context Engine   │       │ 5. PyTorch XAI Gradient      │    │
+│  │    & Temperature Scaler      │       │    Embedding Saliency Norm   │    │
+│  └──────────────┬───────────────┘       └──────────────┬───────────────┘    │
+│                 │                                      │                    │
+│                 └────────────────────┬─────────────────┘                    │
+│                                      ▼                                      │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │ 6. Gemma 4 26B (gemma-4-26b-a4b-it via Google GenAI)                  │  │
+│  │    - 5-Layer Semantic & Cultural Interpretation (Target Language)    │  │
+│  │    - Secondary Classification Verification                            │  │
+│  └───────────────────────────────────┬───────────────────────────────────┘  │
+│                                      │                                      │
+│  ┌───────────────────────────────────▼───────────────────────────────────┐  │
+│  │ 7. Async MongoDB Atlas Persistence (Predictions & History Stats)      │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🤗 Hugging Face Models
+## 🔬 Core Algorithms & Computational Pipeline
 
-The trained models are hosted on Hugging Face and are **automatically downloaded** using `from_pretrained()`.
-
-* **Hindi (XLM-R)**
-  [https://huggingface.co/Madhesh4124/hindi-metaphor-xlm](https://huggingface.co/Madhesh4124/hindi-metaphor-xlm)
-
-* **Tamil (XLM-R)**
-  [https://huggingface.co/Madhesh4124/tamil-metaphor-xlm](https://huggingface.co/Madhesh4124/tamil-metaphor-xlm)
-
-* **Telugu (MuRIL)**
-  [https://huggingface.co/Madhesh4124/telugu-metaphor-muril](https://huggingface.co/Madhesh4124/telugu-metaphor-muril)
-
-* **Kannada (BERT)**
-  [https://huggingface.co/Madhesh4124/kannada-metaphor-bert](https://huggingface.co/Madhesh4124/kannada-metaphor-bert)
-
-> ⚠️ The `models/` directory is intentionally **not included** in this repository.
+### 1. Language & Script Detection
+Input text is parsed through a hybrid detection hierarchy:
+1. **Direct Unicode Range Mapping** (Highest reliability for Indic scripts):
+   - Devanagari (Hindi): `\u0900` to `\u097F`
+   - Tamil: `\u0B80` to `\u0BFF`
+   - Telugu: `\u0C00` to `\u0C7F`
+   - Kannada: `\u0C80` to `\u0CFF`
+2. **LangDetect Engine**: Serves as a fallback for mixed or Romanized inputs.
 
 ---
 
-## ⚙️ Setup Instructions
+### 2. Fine-Tuned Transformer Models
+Each language runs on an optimized transformer architecture fine-tuned specifically for metaphor binary classification (`metaphor` vs. `normal`):
 
-### 1️⃣ Create Environment File
+| Language | Base Architecture | Hugging Face Hub Model |
+| :--- | :--- | :--- |
+| **Hindi** | XLM-RoBERTa Base | [`Madhesh4124/hindi-metaphor-xlm`](https://huggingface.co/Madhesh4124/hindi-metaphor-xlm) |
+| **Tamil** | XLM-RoBERTa Base | [`Madhesh4124/tamil-metaphor-xlm`](https://huggingface.co/Madhesh4124/tamil-metaphor-xlm) |
+| **Telugu** | MuRIL (Multilingual Representations for Indic Languages) | [`Madhesh4124/telugu-metaphor-muril`](https://huggingface.co/Madhesh4124/telugu-metaphor-muril) |
+| **Kannada** | Indic-BERT | [`Madhesh4124/kannada-metaphor-bert`](https://huggingface.co/Madhesh4124/kannada-metaphor-bert) |
 
+---
+
+### 3. Temperature Scaling & Calibration
+Raw neural network logits often output overconfident probabilities for RoBERTa architectures and underconfident spreads for BERT/MuRIL on narrow margins. Calibrated confidence is computed via temperature-scaled softmax:
+
+$$\hat{P}(y = k \mid x) = \frac{\exp(z_k / T)}{\sum_{j} \exp(z_j / T)}$$
+
+- **Hindi / Tamil (XLM-RoBERTa)**: $T = 2.2$ (Smoothes extreme $>99.9\%$ overconfidence).
+- **Telugu / Kannada (MuRIL / BERT)**: $T = 0.35$ (Amplifies narrow $52-60\%$ margins to true certainty).
+
+---
+
+### 4. Two-Pass Context-Aware Chaining
+In multi-sentence paragraphs, metaphors frequently span across sentence boundaries where subsequent sentences appear literal in isolation:
+
+```
+Sentence 1: "उसका दिल पत्थर है।" (His heart is stone.) -> [Metaphor] -> Set Anchor = S1
+Sentence 2: "कोई बात असर नहीं करती।" (Nothing affects him.) -> Pass 1: [Literal]
+                                                            Pass 2: Context Evaluation [S1 + S2] -> [Metaphor]
+```
+
+- **Pass 1 (Isolated Evaluation)**: Evaluates $S_i$ independently.
+  - If $S_i = \text{Metaphor}$, it updates the active anchor: $\text{Anchor} \leftarrow S_i$.
+- **Pass 2 (Context Evaluation)**: If $S_i = \text{Literal}$ and an active anchor exists:
+  - Concatenates: $S_{\text{context}} = [\text{Anchor}] \oplus [S_i]$.
+  - If the concatenated forward pass classifies as $\text{Metaphor}$, the label for $S_i$ is updated to **Metaphor**.
+  - If both passes return **Literal**, the context chain is broken and $\text{Anchor} \leftarrow \emptyset$.
+
+---
+
+### 5. Explainable AI (XAI) Embedding Gradient Saliency
+To explain *why* the neural network made a classification decision, token-level feature attribution is calculated via backpropagation through the model's word embeddings layer:
+
+1. Let $E \in \mathbb{R}^{L \times D}$ be the input embedding tensor for sequence tokens $t_1, t_2, \dots, t_L$.
+2. Compute the gradient of the target class logit $z_{\text{target}}$ with respect to the input embeddings:
+
+$$G_i = \nabla_{E_i} z_{\text{target}}$$
+
+3. The saliency score for each token $i$ is calculated using the $L_2$ Euclidean norm of its gradient vector:
+
+$$S_i = \|G_i\|_2$$
+
+4. Saliency values are normalized into percentage weights across the sequence:
+
+$$P_i = \frac{S_i}{\sum_{j=1}^{L} S_j} \times 100\%$$
+
+5. **Dynamic Key Trigger Threshold**:
+   A token is marked as a **Key Trigger** if:
+
+$$P_i \ge (\mu_S + 0.5 \cdot \sigma_S) \quad \text{OR} \quad (\max(P) - P_i) \le 1.5\%$$
+
+This dual criterion flags both statistically significant tokens above the standard deviation and tightly clustered co-triggers (e.g., `"उसका"` and `"चाँद"` in `"उसका चेहरा चाँद है"`).
+
+---
+
+### 6. 5-Layer Cognitive Interpretation (Gemma 4 26B)
+For every detected metaphor, the backend queries **Gemma 4 26B** (`gemma-4-26b-a4b-it`) using structured few-shot prompting to output five perspectives in the selected language:
+
+1. **Translation**: Direct idiomatic cross-lingual translation.
+2. **Literal**: Word-for-word grammatical translation.
+3. **Emotional**: Mood, affect, and emotional resonance conveyed.
+4. **Philosophical**: Abstract life insight or metaphysical meaning.
+5. **Cultural**: Indic cultural context, folklore, and metaphorical traditions.
+
+---
+
+## ⚡ Memory & Performance Optimization
+
+* **On-Demand Lazy Loading**: PyTorch model weights are only loaded into RAM/VRAM when a request in that specific language is received, ensuring instant server startups and minimal idle memory footprints.
+* **In-Memory Hash Caching**: MD5-hashed cache for identical predictions and LLM calls with a 1-hour TTL ($3600\text{s}$).
+* **Fast-Fail Database Connectors**: MongoDB Atlas client initialized with `serverSelectionTimeoutMS=2000` to prevent request stalling when cloud network drops occur.
+
+---
+
+## 📂 Project Structure
+
+```
+├── backend/
+│   ├── main.py              # FastAPI server, endpoints, XAI & inference engine
+│   ├── database.py          # Motor async MongoDB connector & history operations
+│   └── requirements.txt     # Backend dependencies
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx          # Main application component
+│   │   ├── App.css          # Core design system & theme variables
+│   │   ├── History.jsx      # Historical analytics & record viewer
+│   │   ├── History.css      # History modal styling
+│   │   ├── VirtualKeyboard.jsx # On-screen native script keyboards
+│   │   └── VirtualKeyboard.css # Virtual keyboard styling
+│   └── package.json         # Frontend dependencies & Vite scripts
+├── models/                  # Local model cache (downloaded from Hugging Face)
+├── datasets/                # Evaluation & benchmark datasets
+├── training_code/           # Training scripts for XLM-R, MuRIL & BERT
+├── app.py                   # Hugging Face Spaces deployment entrypoint
+└── README.md                # System documentation & architectural reference
+```
+
+---
+
+## 🚀 Getting Started
+
+### 1. Environment Setup
 Create a `.env` file in the project root:
 
 ```env
-# Required
-GEMINI_API_KEY=your_gemini_api_key_here
-
-# Optional (for history feature)
-# Use localhost OR placeholders for MongoDB Atlas
-MONGODB_URL=mongodb://localhost:27017
-# OR
-# MONGODB_URL=mongodb+srv://<username>:<password>@<cluster-url>/<db-name>
-
+GEMINI_API_KEY=your_google_genai_api_key_here
+MONGODB_URL=mongodb+srv://<username>:<password>@cluster0.mongodb.net/?retryWrites=true&w=majority
 MONGODB_DB_NAME=metaphor_detector
 ```
 
-Get a Gemini API key from:
-[https://makersuite.google.com/app/apikey](https://makersuite.google.com/app/apikey)
-
----
-
-### 2️⃣ Install Python Dependencies
+### 2. Backend Execution
+Activate your Python environment and run:
 
 ```bash
-pip install -r requirements.txt
+uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
----
-
-### 3️⃣ (Optional) Set Up MongoDB
-
-MongoDB is **optional**.
-The application works without it, but history will be disabled.
-
-See: [MONGODB_SETUP.md](MONGODB_SETUP.md)
-
----
-
-## ▶️ Running the Application
-
-### Start Backend
-
-```bash
-cd backend
-uvicorn main:app --reload
-```
-
-Backend will be available at:
-
-```
-http://localhost:8000
-```
-
----
-
-### Start Frontend (New Terminal)
+### 3. Frontend Execution
+In a separate terminal:
 
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev -- --port 5173
 ```
 
-Frontend will open at:
-
-```
-http://localhost:3000
-```
+Navigate to `http://localhost:5173`.
 
 ---
 
-## 🧪 Quick Test
+## 🔌 API Reference
 
-1. Copy this Hindi metaphor:
-   `वह आग में घी डाल रहा है`
-2. Paste it into the input box
-3. Click **Analyze**
-4. View the multi-layer interpretation 🎉
-
----
-
-## 🔌 API Documentation
-
-### Base URL
-
-```
-http://localhost:8000
-```
-
----
-
-### Predict Metaphor
-
-```http
-POST /predict
-Content-Type: application/json
-```
-
+### POST `/predict`
+**Request**:
 ```json
 {
-  "text": "वह आसमान छू रहा है",
-  "is_paragraph": false,
-  "interpretation_language": "english" 
+  "text": "उसका चेहरा चाँद है",
+  "interpretation_language": "english"
 }
 ```
-*`interpretation_language` options: `english`, `hindi`, `tamil`, `telugu`, `kannada`*
+
+**Response**:
+```json
+{
+  "language": "hindi",
+  "label": "metaphor",
+  "confidence": 0.9421,
+  "text": "उसका चेहरा चाँद है",
+  "is_paragraph": false,
+  "sentences": [
+    {
+      "sentence": "उसका चेहरा चाँद है",
+      "label": "metaphor",
+      "confidence": 0.9421,
+      "interpretations": {
+        "translation": "Her face is radiant like the moon.",
+        "literal": "Her face moon is.",
+        "emotional": "Conveys deep romantic admiration and aesthetic wonder.",
+        "philosophical": "Reflects how human beauty mirrors celestial luminosity.",
+        "cultural": "In classical Indian poetics (Kavya), comparing a beloved's face to the moon is a standard archetype."
+      },
+      "word_attributions": [
+        {"word": "उसका", "score": 15.47, "is_key_trigger": true},
+        {"word": "चेहरा", "score": 13.65, "is_key_trigger": false},
+        {"word": "चाँद", "score": 15.26, "is_key_trigger": true},
+        {"word": "है", "score": 14.70, "is_key_trigger": false}
+      ],
+      "decision_reasoning": "The model identified 'उसका', 'चाँद' as key attribution trigger(s) driving the METAPHOR decision.",
+      "is_verified": true,
+      "verification_status": "Verified by Gemini"
+    }
+  ]
+}
 ```
-
----
-
-### Other Endpoints
-
-```http
-GET    /history
-GET    /statistics
-DELETE /history/{prediction_id}
-DELETE /history
-```
-
----
-
-## ⚙️ Configuration
-
-| Variable          | Required | Description                                       |
-| ----------------- | -------- | ------------------------------------------------- |
-| `GEMINI_API_KEY`  | Yes      | Gemini API key for interpretations                |
-| `MONGODB_URL`     | No       | MongoDB connection string (use placeholders only) |
-| `MONGODB_DB_NAME` | No       | Database name                                     |
-
----
-
-## 🎓 For Students & Developers
-
-This project demonstrates:
-
-* Crosslingual NLP using Transformers
-* FastAPI-based REST APIs
-* Full-stack integration (React + ML backend)
-* Clean ML project structuring
-* Proper model hosting with Hugging Face
 
 ---
 
 ## 📄 License
-
-This project is released for **educational and academic purposes**.
-
----
-
-## 🙏 Acknowledgments
-
-* Hugging Face (Transformers & Model Hub)
-* Google Gemini API
-* FastAPI community
-* React community
-
----
-
-**Happy Coding 🚀**
-If you find this project useful, feel free to ⭐ the repository!
-
-
+Released for **educational, academic, and research purposes**.

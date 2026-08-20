@@ -3,40 +3,59 @@ import './History.css';
 
 function History({ apiBaseUrl, onClose }) {
   const SESSION_ID = localStorage.getItem('metaphor_session_id') || 'anonymous';
-  const [history, setHistory] = useState([]);
+  const [history,    setHistory]    = useState([]);
   const [statistics, setStatistics] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [filter, setFilter] = useState({ language: '', label: '' });
+  const [isLoading,  setIsLoading]  = useState(true);
+  const [error,      setError]      = useState('');
+  const [filter,     setFilter]     = useState({ language: '', label: '' });
   const [selectedItem, setSelectedItem] = useState(null);
+  const [dbUnavailable, setDbUnavailable] = useState(false);
 
-  // Fetch history on component mount
   useEffect(() => {
     fetchHistory();
     fetchStatistics();
   }, [filter]);
 
+  // Close on Escape
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   const fetchHistory = async () => {
     setIsLoading(true);
     setError('');
-
+    setDbUnavailable(false);
     try {
       const params = new URLSearchParams();
       if (filter.language) params.append('language', filter.language);
-      if (filter.label) params.append('label', filter.label);
+      if (filter.label)    params.append('label', filter.label);
       params.append('session_id', SESSION_ID);
 
-      const response = await fetch(`${apiBaseUrl}/history?${params}`);
+      // Short 8-second timeout — DB connection failures are fast-fail
+      const controller = new AbortController();
+      const timeoutId  = setTimeout(() => controller.abort(), 8000);
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch history');
+      const res = await fetch(`${apiBaseUrl}/history?${params}`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) throw new Error('Failed to fetch history');
+      const data = await res.json();
+
+      if (data.db_connected === false) {
+        setDbUnavailable(true);
+        setHistory([]);
+      } else {
+        setHistory(data.history || []);
       }
-
-      const data = await response.json();
-      setHistory(data.history || []);
     } catch (err) {
-      setError(err.message);
-      console.error('Error fetching history:', err);
+      if (err.name === 'AbortError') {
+        setDbUnavailable(true);  // timed out — treat as unavailable
+      } else {
+        setError(err.message);
+      }
+      setHistory([]);
     } finally {
       setIsLoading(false);
     }
@@ -44,97 +63,78 @@ function History({ apiBaseUrl, onClose }) {
 
   const fetchStatistics = async () => {
     try {
-      const response = await fetch(`${apiBaseUrl}/statistics?session_id=${SESSION_ID}`);
-      if (response.ok) {
-        const data = await response.json();
+      const controller = new AbortController();
+      const timeoutId  = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(`${apiBaseUrl}/statistics?session_id=${SESSION_ID}`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data = await res.json();
         setStatistics(data.statistics);
       }
-    } catch (err) {
-      console.error('Error fetching statistics:', err);
+    } catch {
+      // silently ignore — DB might not be running
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this prediction?')) {
-      return;
-    }
-
+    if (!window.confirm('Delete this prediction?')) return;
     try {
-      const response = await fetch(`${apiBaseUrl}/history/${id}?session_id=${SESSION_ID}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete prediction');
-      }
-
-      // Refresh history
+      const res = await fetch(`${apiBaseUrl}/history/${id}?session_id=${SESSION_ID}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete');
       fetchHistory();
       fetchStatistics();
       setSelectedItem(null);
     } catch (err) {
       setError(err.message);
-      console.error('Error deleting prediction:', err);
     }
   };
 
   const handleClearAll = async () => {
-    if (!window.confirm('Are you sure you want to clear all history? This cannot be undone.')) {
-      return;
-    }
-
+    if (!window.confirm('Clear all history? This cannot be undone.')) return;
     try {
-      const response = await fetch(`${apiBaseUrl}/history`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to clear history');
-      }
-
-      // Refresh history
+      const res = await fetch(`${apiBaseUrl}/history`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to clear history');
       fetchHistory();
       fetchStatistics();
       setSelectedItem(null);
     } catch (err) {
       setError(err.message);
-      console.error('Error clearing history:', err);
     }
   };
 
-  const formatDate = (timestamp) => {
-    const date = new Date(timestamp);
-    return date.toLocaleString('en-IN', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+  const formatDate = (timestamp) =>
+    new Date(timestamp).toLocaleString('en-IN', {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
     });
-  };
+
+  const toggleItem = (item) =>
+    setSelectedItem(prev => prev?._id === item._id ? null : item);
 
   return (
-    <div className="history-overlay">
+    <div className="history-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="history-modal">
+
+        {/* Header */}
         <div className="history-header">
-          <h2>📜 Prediction History</h2>
-          <button className="close-btn" onClick={onClose}>✕</button>
+          <h2>Prediction History</h2>
+          <button className="close-btn" onClick={onClose} title="Close (Esc)">✕</button>
         </div>
 
-        {/* Statistics Section */}
-        {statistics && (
+        {/* Statistics */}
+        {!dbUnavailable && statistics && (
           <div className="statistics-section">
             <div className="stat-card">
               <div className="stat-value">{statistics.total_predictions}</div>
-              <div className="stat-label">Total Predictions</div>
+              <div className="stat-label">Total</div>
             </div>
             <div className="stat-card">
               <div className="stat-value">{statistics.metaphor_count}</div>
-              <div className="stat-label">🎭 Metaphors</div>
+              <div className="stat-label">Metaphors</div>
             </div>
             <div className="stat-card">
               <div className="stat-value">{statistics.normal_count}</div>
-              <div className="stat-label">✅ Normal</div>
+              <div className="stat-label">Literal</div>
             </div>
           </div>
         )}
@@ -160,34 +160,37 @@ function History({ apiBaseUrl, onClose }) {
           >
             <option value="">All Types</option>
             <option value="metaphor">Metaphor</option>
-            <option value="normal">Normal</option>
+            <option value="normal">Literal</option>
           </select>
 
-          <button onClick={fetchHistory} className="refresh-btn">🔄 Refresh</button>
+          <button onClick={fetchHistory} className="refresh-btn">Refresh</button>
 
           {history.length > 0 && (
-            <button onClick={handleClearAll} className="clear-all-btn">🗑️ Clear All</button>
+            <button onClick={handleClearAll} className="clear-all-btn">Clear All</button>
           )}
         </div>
 
-        {/* Error Message */}
+        {/* Error */}
         {error && (
-          <div className="history-error">
-            ⚠️ {error}
-          </div>
+          <div className="history-error">{error}</div>
         )}
 
-        {/* History List */}
+        {/* Content */}
         <div className="history-content">
           {isLoading ? (
             <div className="history-loading">
-              <div className="loading-spinner"></div>
-              <p>Loading history...</p>
+              <div className="loading-spinner" />
+              <p>Loading…</p>
+            </div>
+          ) : dbUnavailable ? (
+            <div className="history-empty">
+              <p>History unavailable</p>
+              <p className="empty-subtitle">Database is not connected. Start MongoDB to enable history.</p>
             </div>
           ) : history.length === 0 ? (
             <div className="history-empty">
-              <p>📭 No predictions in history yet</p>
-              <p className="empty-subtitle">Start analyzing text to build your history</p>
+              <p>No predictions yet</p>
+              <p className="empty-subtitle">Analyze some text to build your history.</p>
             </div>
           ) : (
             <div className="history-list">
@@ -195,44 +198,41 @@ function History({ apiBaseUrl, onClose }) {
                 <div
                   key={item._id}
                   className={`history-item ${item.label}`}
-                  onClick={() => setSelectedItem(selectedItem?._id === item._id ? null : item)}
+                  onClick={() => toggleItem(item)}
                 >
                   <div className="history-item-header">
                     <div className="history-item-text">
-                      {item.text.length > 80 ? `${item.text.substring(0, 80)}...` : item.text}
+                      {item.text.length > 90 ? `${item.text.substring(0, 90)}…` : item.text}
                     </div>
                     <div className="history-item-meta">
                       <span className={`badge badge-${item.label}`}>
-                        {item.label === 'metaphor' ? '🎭' : '✅'} {item.label}
+                        {item.label === 'metaphor' ? 'Metaphor' : 'Literal'}
                       </span>
+                      <span className="history-item-lang">{item.language.toUpperCase()}</span>
                       {item.interpretation_language && (
                         <span className="history-item-lang-detail">
-                          🧠 {item.interpretation_language.charAt(0).toUpperCase() + item.interpretation_language.slice(1)}
+                          {item.interpretation_language.charAt(0).toUpperCase() + item.interpretation_language.slice(1)}
                         </span>
                       )}
-                      <span className="history-item-lang">{item.language.toUpperCase()}</span>
                     </div>
                   </div>
 
                   <div className="history-item-footer">
-                    <span className="history-item-date">
-                      🕐 {formatDate(item.timestamp)}
-                    </span>
+                    <span className="history-item-date">{formatDate(item.timestamp)}</span>
                     <span className="history-item-confidence">
                       {(item.confidence * 100).toFixed(1)}% confidence
                     </span>
                   </div>
 
-                  {/* Expanded Details */}
+                  {/* Expanded */}
                   {selectedItem?._id === item._id && (
                     <div className="history-item-details">
                       <div className="detail-section">
-                        <strong>Full Text:</strong>
+                        <strong>Full Text</strong>
                         <p>{item.text}</p>
                       </div>
 
-                      {/* Display sentence-level interpretations if available */}
-                      {item.sentences && item.sentences.length > 0 ? (
+                      {item.sentences?.length > 0 ? (
                         <div className="interpretations-container">
                           {item.sentences.map((sentence, idx) => (
                             <div key={idx} className="sentence-interpretation">
@@ -241,45 +241,40 @@ function History({ apiBaseUrl, onClose }) {
                                   <strong>Sentence {idx + 1}:</strong> {sentence.sentence}
                                 </div>
                               )}
-
                               {sentence.interpretations && (
                                 <div className="interpretation-grid">
                                   <div className="interpretation-item">
-                                    <div className="interpretation-icon">🌐</div>
+                                    <div className="interpretation-icon">EN</div>
                                     <div>
-                                      <strong>Translation:</strong>
+                                      <strong>Translation</strong>
                                       <p>{sentence.interpretations.translation}</p>
                                     </div>
                                   </div>
-
                                   <div className="interpretation-item">
-                                    <div className="interpretation-icon">💬</div>
+                                    <div className="interpretation-icon">Lit</div>
                                     <div>
-                                      <strong>Literal:</strong>
+                                      <strong>Literal</strong>
                                       <p>{sentence.interpretations.literal}</p>
                                     </div>
                                   </div>
-
                                   <div className="interpretation-item">
-                                    <div className="interpretation-icon">❤️</div>
+                                    <div className="interpretation-icon">Em</div>
                                     <div>
-                                      <strong>Emotional:</strong>
+                                      <strong>Emotional</strong>
                                       <p>{sentence.interpretations.emotional}</p>
                                     </div>
                                   </div>
-
                                   <div className="interpretation-item">
-                                    <div className="interpretation-icon">🧘</div>
+                                    <div className="interpretation-icon">Ph</div>
                                     <div>
-                                      <strong>Philosophical:</strong>
+                                      <strong>Philosophical</strong>
                                       <p>{sentence.interpretations.philosophical}</p>
                                     </div>
                                   </div>
-
                                   <div className="interpretation-item">
-                                    <div className="interpretation-icon">🌏</div>
+                                    <div className="interpretation-icon">Cx</div>
                                     <div>
-                                      <strong>Cultural:</strong>
+                                      <strong>Cultural</strong>
                                       <p>{sentence.interpretations.cultural}</p>
                                     </div>
                                   </div>
@@ -290,17 +285,15 @@ function History({ apiBaseUrl, onClose }) {
                         </div>
                       ) : (
                         <>
-                          {/* Fallback for old data format */}
                           {item.translation && (
                             <div className="detail-section">
-                              <strong>🌍 Translation:</strong>
+                              <strong>Translation</strong>
                               <p>{item.translation}</p>
                             </div>
                           )}
-
                           {item.explanation && (
                             <div className="detail-section">
-                              <strong>💡 Explanation:</strong>
+                              <strong>Explanation</strong>
                               <p>{item.explanation}</p>
                             </div>
                           )}
@@ -309,12 +302,9 @@ function History({ apiBaseUrl, onClose }) {
 
                       <button
                         className="delete-item-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(item._id);
-                        }}
+                        onClick={(e) => { e.stopPropagation(); handleDelete(item._id); }}
                       >
-                        🗑️ Delete
+                        Delete
                       </button>
                     </div>
                   )}
