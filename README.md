@@ -155,6 +155,29 @@ For every detected metaphor, the backend queries **Gemma 4 26B** (`gemma-4-26b-a
 
 ---
 
+## 📊 Benchmark & Evaluation Results (Unseen Test Data)
+
+The fine-tuned models were evaluated against an independent held-out benchmark ([`unseen_data.txt`](unseen_data.txt)) comprising **400 parallel sentences (100 samples per language: 50 Metaphor, 50 Normal/Literal)** across Telugu, Kannada, Tamil, and Hindi.
+
+![Final Metrics Report](assets/unseen_eval_metrics.png)
+
+### Quantitative Performance Breakdown
+
+| Language | Model Architecture | Test Samples | Accuracy | Precision | Recall | F1 Score | Specificity | MCC | Balanced Accuracy |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Telugu (TE)** | MuRIL + BiLSTM + Attention Hybrid | 100 | **84.00%** | 0.8148 | 0.8800 | **0.8462** | 0.8000 | 0.6822 | 0.8400 |
+| **Kannada (KN)** | Indic-BERT | 100 | **77.00%** | 0.7647 | 0.7800 | **0.7723** | 0.7600 | 0.5401 | 0.7700 |
+| **Tamil (TA)** | XLM-RoBERTa Base | 100 | **85.00%** | 0.8889 | 0.8000 | **0.8421** | 0.9000 | 0.7035 | 0.8500 |
+| **Hindi (HI)** | XLM-RoBERTa Base | 100 | **75.00%** | 0.7551 | 0.7400 | **0.7475** | 0.7600 | 0.5001 | 0.7500 |
+| **OVERALL** | **Multi-Model Pipeline** | **400** | **80.25%** | **0.8040** | **0.8000** | **0.8020** | **0.8050** | **0.6050** | **0.8025** |
+
+#### Key Empirical Observations:
+- **Top Accuracy & Specificity**: **Tamil (85.00% Acc, 90.00% Spec)** demonstrates exceptional true-negative discrimination on Dravidian literal constructs.
+- **Top Recall & Sensitivity**: **Telugu (88.00% Recall, 0.8462 F1)** benefits substantially from the MuRIL + BiLSTM + handcrafted CMT/Syntactic meta-classifier, capturing nuanced metaphorical expressions.
+- **Robust Generalization**: The complete system achieves **80.25% aggregate accuracy** and **0.8020 macro F1** on strictly unseen, balanced test sets with zero sentence leakage from training data.
+
+---
+
 ## ⚡ Memory & Performance Optimization
 
 * **On-Demand Lazy Loading**: PyTorch model weights are only loaded into RAM/VRAM when a request in that specific language is received, ensuring instant server startups and minimal idle memory footprints.
