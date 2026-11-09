@@ -258,6 +258,18 @@ function App() {
                       </div>
                     )}
 
+                    {/* Disagreement / Misclassification Notice */}
+                    {sentence.verification_status && (sentence.verification_status.includes('Disagreement') || sentence.verification_status.includes('misclassification') || (!sentence.is_verified && sentence.verification_status !== 'Partial or no verification')) && (
+                      <div className={`validator-alert-box ${sentence.verification_status.includes('Disagreement') ? 'alert-warning' : 'alert-info'}`}>
+                        <span className="validator-alert-icon">
+                          {sentence.verification_status.includes('Disagreement') ? '⚠️' : 'ℹ️'}
+                        </span>
+                        <div className="validator-alert-content">
+                          <p>{sentence.verification_status}</p>
+                        </div>
+                      </div>
+                    )}
+
                     {sentence.interpretations && (
                       <div className="interpretations">
                         <h4>Interpretations</h4>

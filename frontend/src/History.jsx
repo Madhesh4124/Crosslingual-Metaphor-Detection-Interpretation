@@ -241,6 +241,12 @@ function History({ apiBaseUrl, onClose }) {
                                   <strong>Sentence {idx + 1}:</strong> {sentence.sentence}
                                 </div>
                               )}
+                              {sentence.verification_status && (sentence.verification_status.includes('Disagreement') || sentence.verification_status.includes('misclassification')) && (
+                                <div className="history-validator-alert">
+                                  <span>{sentence.verification_status.includes('Disagreement') ? '⚠️' : 'ℹ️'}</span>
+                                  <p>{sentence.verification_status}</p>
+                                </div>
+                              )}
                               {sentence.interpretations && (
                                 <div className="interpretation-grid">
                                   <div className="interpretation-item">

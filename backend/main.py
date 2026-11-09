@@ -62,7 +62,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Multilingual Metaphor Detection API")
+app = FastAPI(title="Crosslingual Metaphor Detection API")
 
 # Simple in-memory cache for predictions
 prediction_cache = {}
@@ -394,15 +394,28 @@ The neural classification model predicted this sentence is: **{model_label.upper
 
 Your task:
 1. Determine if this sentence ACTUALLY contains a metaphor or is purely literal.
-2. If it is purely LITERAL (and the model incorrectly flagged it as metaphor, or it has no metaphor):
-   Output:
-   VALIDATION: MISMATCH (Literal sentence with no metaphor detected)
-   REASON: [Brief 1-sentence explanation of why it is literal in {target_language_name}]
-   TRANSLATION: [Direct translation into {target_language_name}]
+2. If it is purely LITERAL:
+   - If the model predicted METAPHOR (misclassification):
+     Output:
+     VALIDATION: MISMATCH (Literal sentence with no metaphor detected)
+     REASON: [Brief 1-sentence explanation of why it is literal in {target_language_name}]
+     TRANSLATION: [Direct translation into {target_language_name}]
+   - If the model predicted NORMAL/LITERAL (agreement):
+     Output:
+     VALIDATION: VERIFIED (Sentence is literal)
+     REASON: [Brief 1-sentence explanation of why it is literal in {target_language_name}]
+     TRANSLATION: [Direct translation into {target_language_name}]
 
 3. If it IS a METAPHOR (or genuinely metaphorical):
-   Output:
-   VALIDATION: VERIFIED
+   - If the model predicted METAPHOR (agreement):
+     Output:
+     VALIDATION: VERIFIED (Sentence contains metaphor)
+   - If the model predicted NORMAL/LITERAL (misclassification):
+     Output:
+     VALIDATION: MISMATCH (Sentence contains metaphor, model falsely predicted literal)
+     REASON: [Brief 1-sentence explanation of why it is a metaphor in {target_language_name}]
+
+   Then provide the 5 labeled interpretation lines:
    Translation: Translate the sentence into natural {target_language_name}, preserving the metaphor.
    Literal: Translate the sentence word-for-word into grammatically correct {target_language_name}.
    Emotional: Describe the emotional mood/feeling in {target_language_name}.
@@ -410,7 +423,7 @@ Your task:
    Cultural: Describe the cultural nuance or Indian idiom context in {target_language_name}.
 
 CRITICAL RULES:
-- If VALIDATION is MISMATCH, do NOT generate Literal, Emotional, Philosophical, or Cultural lines.
+- If the sentence is purely LITERAL, do NOT generate Literal, Emotional, Philosophical, or Cultural lines.
 - Each line must start with its label followed by a colon.
 """
 
@@ -426,8 +439,8 @@ CRITICAL RULES:
             interpretation_text = response.text
             logger.info(f"✅ Generated single-pass interpretation:\n{interpretation_text}")
             
-            is_verified = True
-            verification_status = "Verified by Gemini"
+            val_raw = ""
+            reason = ""
             translation = ""
             literal = ""
             emotional = ""
@@ -438,12 +451,9 @@ CRITICAL RULES:
             for line in lines:
                 line_lower = line.lower()
                 if line_lower.startswith('validation:'):
-                    val = line.split(':', 1)[1].strip()
-                    if 'mismatch' in val.lower() or 'literal' in val.lower():
-                        is_verified = False
-                        verification_status = "Model misclassification: Sentence is literal (No metaphor detected)"
+                    val_raw = line.split(':', 1)[1].strip()
                 elif line_lower.startswith('reason:'):
-                    verification_status = f"Literal sentence: {line.split(':', 1)[1].strip()}"
+                    reason = line.split(':', 1)[1].strip()
                 elif line_lower.startswith('translation:'):
                     translation = line.split(':', 1)[1].strip()
                 elif line_lower.startswith('literal:'):
@@ -455,10 +465,28 @@ CRITICAL RULES:
                 elif line_lower.startswith('cultural:'):
                     cultural = line.split(':', 1)[1].strip()
             
-            if not is_verified or (model_label == "normal" and not literal):
-                # When model was wrong or sentence is literal, suppress 5-layer output
-                result_data = (None, False, verification_status or "Literal sentence: No metaphor detected")
-            else:
+            val_lower = val_raw.lower()
+            is_mismatch = "mismatch" in val_lower
+            
+            # Determine verification status and agreement
+            if model_label == "metaphor":
+                if is_mismatch or "literal" in val_lower:
+                    is_verified = False
+                    verification_status = f"Model misclassification: Sentence is literal (No metaphor detected){f' - {reason}' if reason else ''}"
+                else:
+                    is_verified = True
+                    verification_status = "Verified by AI Validator"
+            else:  # model_label == "normal"
+                # If validator found mismatch, or if metaphor layers were generated, or "metaphor" in validation
+                if is_mismatch or literal or "metaphor" in val_lower:
+                    is_verified = False
+                    verification_status = "AI Validator Disagreement: The validation model identified this sentence as a metaphor and provided the interpretations below."
+                else:
+                    is_verified = True
+                    verification_status = "Verified by AI Validator (Literal sentence)"
+            
+            # Return interpretations only when sentence is identified as a metaphor
+            if (model_label == "metaphor" and is_verified) or (model_label == "normal" and not is_verified and (literal or emotional or philosophical)):
                 if not translation:
                     translation = text
                 interp = InterpretationData(
@@ -468,7 +496,10 @@ CRITICAL RULES:
                     philosophical=philosophical or "N/A",
                     cultural=cultural or "N/A"
                 )
-                result_data = (interp, True, "Verified by Gemini")
+                result_data = (interp, is_verified, verification_status)
+            else:
+                # Literal sentence: suppress 5-layer metaphor output
+                result_data = (None, is_verified, verification_status)
             
             interpretation_cache[cache_key] = result_data
             return result_data
@@ -665,7 +696,7 @@ async def startup_event():
     Load models and connect to database when the application starts
     """
     logger.info("\n" + "="*60)
-    logger.info("Starting Multilingual Metaphor Detection API")
+    logger.info("Starting Crosslingual Metaphor Detection API")
     logger.info("="*60 + "\n")
     
     load_models()
@@ -704,7 +735,7 @@ async def root_health():
     """Root health check for Hugging Face Spaces and load balancers"""
     return {
         "status": "online",
-        "service": "Multilingual Metaphor Detection API",
+        "service": "Crosslingual Metaphor Detection API",
         "models": list(models.keys())
     }
 
@@ -929,7 +960,16 @@ async def predict(input_data: TextInput):
         # Check overall verification status
         verified_sentences = [s for s in sentence_analyses if s.is_verified is True]
         is_fully_verified = len(verified_sentences) == len(sentence_analyses)
-        verification_status = "Fully verified by Gemini" if is_fully_verified else "Partial or no verification"
+        has_disagreements = any(
+            s.verification_status and "Disagreement" in s.verification_status 
+            for s in sentence_analyses
+        )
+        if has_disagreements:
+            verification_status = "Disagreement detected by AI Validator"
+        elif is_fully_verified:
+            verification_status = "Fully verified by AI Validator"
+        else:
+            verification_status = "Partial or no verification"
         
         # Prepare response with proper serialization
         sentences_data = []

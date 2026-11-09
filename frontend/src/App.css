@@ -592,6 +592,51 @@ body::after {
   margin-bottom: 12px;
 }
 
+/* ── Validator Alert Box ───────────────────────────── */
+.validator-alert-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  transition: all var(--dur-normal) var(--ease-out);
+}
+.validator-alert-box.alert-warning {
+  background: rgba(251, 191, 36, 0.10);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  color: #fbbf24;
+}
+body[data-theme="light"] .validator-alert-box.alert-warning {
+  background: rgba(217, 119, 6, 0.08);
+  border-color: rgba(217, 119, 6, 0.28);
+  color: #b45309;
+}
+.validator-alert-box.alert-info {
+  background: rgba(59, 130, 246, 0.10);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #60a5fa;
+}
+body[data-theme="light"] .validator-alert-box.alert-info {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.28);
+  color: #1d4ed8;
+}
+.validator-alert-icon {
+  font-size: 1.05rem;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+.validator-alert-content {
+  flex: 1;
+}
+.validator-alert-content p {
+  margin: 0;
+  font-weight: 500;
+}
+
 /* ── XAI Box ──────────────────────────────────────── */
 .xai-proof-box {
   background: var(--xai-dim);
