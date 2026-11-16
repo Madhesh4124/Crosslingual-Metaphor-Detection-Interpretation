@@ -10,7 +10,8 @@ pinned: false
 
 A production-grade NLP architecture for detecting and explaining metaphors across **Hindi, Tamil, Telugu, and Kannada** using fine-tuned transformer models, explainable AI (XAI) feature attributions, and 5-layer LLM cognitive interpretations.
 
-🌐 **Live Demo**: [https://crosslingual-metaphor-detection-interpretation-kovgohbol.vercel.app/](https://crosslingual-metaphor-detection-interpretation-kovgohbol.vercel.app/)
+🌐 **Live Demo**: [https://crosslingual-metaphor-detection-interpretation-kovgohbol.vercel.app/](https://crosslingual-metaphor-detection-interpretation-kovgohbol.vercel.app/)  
+📊 **Kaggle Dataset**: [Indic Metaphor Detection Dataset (Hindi, Tamil, Kannada)](https://www.kaggle.com/datasets/madheshraj/indic-metaphor-detection-hindi-tamil-and-kannada)
 
 ---
 
@@ -88,6 +89,8 @@ Each language runs on an optimized transformer architecture fine-tuned specifica
 | **Tamil** | XLM-RoBERTa Base | [`Madhesh4124/tamil-metaphor-xlm`](https://huggingface.co/Madhesh4124/tamil-metaphor-xlm) |
 | **Telugu** | MuRIL (Multilingual Representations for Indic Languages) | [`Madhesh4124/telugu-metaphor-muril`](https://huggingface.co/Madhesh4124/telugu-metaphor-muril) |
 | **Kannada** | Indic-BERT | [`Madhesh4124/kannada-metaphor-bert`](https://huggingface.co/Madhesh4124/kannada-metaphor-bert) |
+
+> 📦 **Dataset Availability**: The balanced Indic benchmark datasets for Hindi, Tamil, and Kannada are published on Kaggle at [Indic Metaphor Detection Dataset](https://www.kaggle.com/datasets/madheshraj/indic-metaphor-detection-hindi-tamil-and-kannada).
 
 ---
 
@@ -203,7 +206,7 @@ The fine-tuned models were evaluated against an independent held-out benchmark (
 │   │   └── VirtualKeyboard.css # Virtual keyboard styling
 │   └── package.json         # Frontend dependencies & Vite scripts
 ├── models/                  # Local model cache (downloaded from Hugging Face)
-├── datasets/                # Evaluation & benchmark datasets
+├── datasets/                # Benchmark datasets (published on Kaggle)
 ├── training_code/           # Training scripts for XLM-R, MuRIL & BERT
 ├── app.py                   # Hugging Face Spaces deployment entrypoint
 └── README.md                # System documentation & architectural reference

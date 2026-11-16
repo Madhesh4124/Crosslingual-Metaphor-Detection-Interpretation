@@ -78,4 +78,8 @@ MISSION.md
 /learning-records
 /models
 
+# Datasets & Zip Archives (Hosted on Kaggle)
+datasets/
+*.zip
+
 
